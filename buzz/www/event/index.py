@@ -21,10 +21,12 @@ from buzz.events.doctype.event_venue.details import VenueLocation, venue_details
 from buzz.events.doctype.sponsorship_tier.sponsorship_tier import default_price
 from buzz.events.online_meeting import OnlineMeeting
 from buzz.utils import datetime_in_time_zone, format_gmt_offset, get_time_zone_label
+from buzz.www.event.banner_color import banner_color
 from buzz.www.event.date_range import RANGE_SEPARATOR, EventDateRange, format_time
 from buzz.www.event.dot_map import DotMap
 from buzz.www.event.link_icons import LINK_ICON_PATHS
 from buzz.www.event.meta import EventMeta, event_time_zone
+from buzz.www.event.registration import ProposalCard, RegistrationCard
 from buzz.www.event.venue_map import venue_map_url
 from buzz.www.site_header import apply_site_context
 
@@ -107,6 +109,7 @@ class EventPage:
 	def as_context(self) -> dict:
 		context = {
 			"event": self.event,
+			"banner_color": banner_color(self.event.banner_image),
 			"event_date": self.event_date(),
 			"date_range": EventDateRange(self.event).as_dict(),
 			"timezone_label_with_offset": self.timezone_label_with_offset(),
@@ -124,6 +127,8 @@ class EventPage:
 			"online_label": OnlineMeeting(self.event).label,
 			"register_url": registration_link(self.event),
 			"registrations_closed": are_registrations_closed(self.event),
+			"registration": RegistrationCard(self.event).as_dict(),
+			"proposal_card": ProposalCard(self.event).as_dict(),
 			"countdown": event_countdown(self.event) if self.event.show_countdown else None,
 		}
 		meta = EventMeta(self.event, self.page, context)
