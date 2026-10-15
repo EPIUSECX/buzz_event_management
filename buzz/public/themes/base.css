@@ -257,6 +257,31 @@ body {
 	margin-top: 24px;
 }
 
+/* Matches the dashboard editor, so column widths saved there carry over. */
+.prose table {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+}
+
+.prose :is(th, td) {
+	padding: 8px;
+	border: 1px solid var(--outline-gray-2);
+	text-align: start;
+	vertical-align: top;
+}
+
+.prose th {
+	background: var(--surface-gray-2);
+	color: var(--ink);
+	font-weight: var(--font-weight-semibold);
+}
+
+.prose :is(th, td) > * {
+	margin: 0;
+}
+
 /* Editors wrap heading text in <strong>; `bolder` would push it past semibold. */
 .prose :is(h1, h2, h3, h4, h5, h6) strong {
 	font-weight: inherit;
