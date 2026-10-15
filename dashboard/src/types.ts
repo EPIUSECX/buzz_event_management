@@ -509,6 +509,14 @@ export interface AvailableTicketType {
 	add_ons?: string[]
 	prices?: { currency: string; price: number }[]
 	price_note?: string
+	category?: string | null
+}
+
+// buzz.api.booking.get_event_booking_data: categories that hold an available ticket type.
+export interface BookingTicketCategory {
+	name: string
+	title: string
+	description: string | null
 }
 
 export interface AvailableAddOn {
@@ -723,9 +731,17 @@ export interface TicketTypePrice extends TierPrice {
 }
 
 // buzz.api.events.get_event_ticket_types: the ticket types an event sells, for its Tickets page.
+export interface TicketCategoryItem {
+	name: string
+	title: string
+	description: string | null
+	sort_order: number
+}
+
 export interface TicketTypeItem {
 	name: string
 	title: string
+	category: string | null
 	max_tickets_available: number
 	auto_unpublish_after: string | null
 	is_published: boolean
@@ -748,6 +764,7 @@ export interface EventTicketTypes {
 	team_tax_id: string | null
 	can_edit_team: boolean
 	paid_events_enabled: boolean
+	categories: TicketCategoryItem[]
 	ticket_types: TicketTypeItem[]
 	payment_providers: PaymentProviderItem[]
 	revenue: CurrencyRevenue[]
