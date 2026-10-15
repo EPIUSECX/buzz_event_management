@@ -167,8 +167,9 @@ body {
 .event-layout {
 	display: grid;
 	grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-	grid-template-rows: auto auto 1fr;
+	grid-template-rows: auto auto auto 1fr;
 	grid-template-areas:
+		"manage aside"
 		"banner aside"
 		"intro aside"
 		"main aside";
@@ -488,6 +489,42 @@ body {
 	flex-direction: column;
 	gap: 16px;
 	margin-bottom: 24px;
+}
+
+/* Mirrors frappe-ui's Alert in its row layout. */
+.manage-alert {
+	grid-area: manage;
+	display: flex;
+	align-items: center;
+	height: 40px;
+	margin-bottom: 16px;
+	padding: 6px 6px 6px 14px;
+	border-radius: var(--radius-6);
+	background: var(--surface-gray-1);
+}
+
+.manage-alert-icon {
+	flex-shrink: 0;
+	width: 16px;
+	height: 16px;
+	margin-right: 8px;
+	color: var(--ink-gray-7);
+	fill: currentColor;
+}
+
+.manage-alert-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink-gray-8);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.manage-alert-action {
+	--bt-fg: var(--ink-gray-7);
+	flex-shrink: 0;
+	margin-left: 6px;
 }
 
 .side-card {
@@ -1240,6 +1277,7 @@ summary:focus-visible {
 	.event-layout {
 		grid-template-columns: minmax(0, 1fr);
 		grid-template-areas:
+			"manage"
 			"banner"
 			"intro"
 			"aside"
