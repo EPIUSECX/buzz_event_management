@@ -7,13 +7,13 @@ import {
 	HOLDS_TICKET_TITLE,
 } from "../data/ticket-holds"
 import { callMethod, createDoc, getList, updateDoc } from "../helpers/frappe"
+import { BookingPage } from "../pages"
 
 interface NamedDoc {
 	name: string
 }
 
 const PARALLEL_REQUESTS = 25
-const HELD_TEXT = "Your tickets are held for"
 
 async function eventName(request): Promise<string> {
 	const [event] = await getList<NamedDoc>(request, "Buzz Event", {
@@ -120,11 +120,11 @@ test.describe("booking form", () => {
 
 	test("holds the picked tickets and releases them on leaving", async ({ page, request }) => {
 		await page.goto(`/b/register/${HOLDS_EVENT_ROUTE}`)
-		await expect(page.getByText(HELD_TEXT)).toBeVisible()
+		await expect(page.getByRole("timer")).toBeVisible()
 		await expect.poll(() => heldQuantity(request, ticketType)).toBe(1)
 
-		await page.getByRole("button", { name: "Add Another Attendee" }).click()
-		await page.getByRole("button", { name: "Add Another Attendee" }).click()
+		await page.getByRole("button", { name: /^Add one / }).click()
+		await page.getByRole("button", { name: /^Add one / }).click()
 		await expect.poll(() => heldQuantity(request, ticketType)).toBe(3)
 
 		await page.goto("about:blank")
@@ -134,20 +134,20 @@ test.describe("booking form", () => {
 	test("shows an expired hold and holds again", async ({ page }) => {
 		await page.clock.install()
 		await page.goto(`/b/register/${HOLDS_EVENT_ROUTE}`)
-		await expect(page.getByText(HELD_TEXT)).toBeVisible()
+		await expect(page.getByRole("timer")).toBeVisible()
 
 		await page.clock.fastForward("10:01")
 		await expect(page.getByText("Your hold has expired")).toBeVisible()
 
 		await page.getByRole("button", { name: "Hold again" }).click()
-		await expect(page.getByText(HELD_TEXT)).toBeVisible()
+		await expect(page.getByRole("timer")).toBeVisible()
 	})
 
 	test("a booking turns the hold into a ticket", async ({ page, request }) => {
 		await page.goto(`/b/register/${HOLDS_EVENT_ROUTE}`)
-		await expect(page.getByText(HELD_TEXT)).toBeVisible()
+		await expect(page.getByRole("timer")).toBeVisible()
 
-		await page.locator('button[type="submit"]').click()
+		await new BookingPage(page).submit()
 		await page.waitForURL(/booking/)
 
 		const tickets = await getList<NamedDoc>(request, "Event Ticket", {
@@ -192,7 +192,7 @@ test.describe("availability", () => {
 		await callMethod(request, "buzz.api.booking.release_hold", { hold_token: holdToken })
 		await page.clock.runFor(20_000)
 
-		await expect(page.getByText(HELD_TEXT)).toBeVisible()
+		await expect(page.getByRole("timer")).toBeVisible()
 	})
 
 	test("the event page shows the tickets as reserved", async ({ browser }) => {
