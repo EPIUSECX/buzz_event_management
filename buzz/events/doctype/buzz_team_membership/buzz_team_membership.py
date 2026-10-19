@@ -100,11 +100,16 @@ def sync_frappe_roles(user: str):
 	earned |= collaborator_frappe_roles(user)
 
 	user_doc = frappe.get_doc("User", user)
+	held = {row.role for row in user_doc.roles} & MANAGED_FRAPPE_ROLES
+	if held == earned:
+		return
+
 	# Roles follow from the membership, not from whoever triggered the save — a team admin
 	# adding a member, or a Guest accepting an invitation, has no write access to User.
 	user_doc.flags.ignore_permissions = True
-	user_doc.add_roles(*earned)
-	user_doc.remove_roles(*(MANAGED_FRAPPE_ROLES - earned))
+	user_doc.set("roles", [row for row in user_doc.roles if row.role not in held - earned])
+	user_doc.append_roles(*earned)
+	user_doc.save()
 
 
 class BuzzTeamMembership(Document):
