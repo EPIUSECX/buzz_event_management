@@ -18,7 +18,8 @@ export default {
 		"./src/components/dashboard/teams/{AddEventMenu,AddEventDialog,ExistingEventForm,ExternalEventForm}.vue",
 		"./src/components/dashboard/teams/addEventOptions.ts",
 		"./src/components/LoginDialog.vue",
-		"./node_modules/frappe-ui/src/components/{Button,Dialog,Dropdown,FormControl,TextInput,Combobox,DatePicker,ErrorMessage,Toast,Popover,shared}/**/*.{vue,ts}",
+		"./src/components/playground/*.vue",
+		"./node_modules/frappe-ui/src/components/{Badge,Button,Dialog,Dropdown,FormControl,TextInput,Combobox,DatePicker,ErrorMessage,Popover,TabButtons,Toast,shared}/**/*.{vue,ts}",
 		// Add each dashboard component an island imports, and the frappe-ui component folders
 		// it uses, e.g. "./node_modules/frappe-ui/src/components/{Button,Dialog}/**/*.{vue,ts}".
 	],

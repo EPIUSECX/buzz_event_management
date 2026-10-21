@@ -55,7 +55,10 @@ website_redirects = [
 # ---------------
 
 scheduler_events = {
-	"hourly": ["buzz.ticketing.doctype.ticket_hold.ticket_hold.delete_expired_holds"],
+	"hourly": [
+		"buzz.ticketing.doctype.ticket_hold.ticket_hold.delete_expired_holds",
+		"buzz.playground.cleanup.delete_expired_sandboxes",
+	],
 	"daily": [
 		"buzz.tasks.unpublish_ticket_types_after_last_date",
 		"buzz.telemetry_scan.send_site_profile",
@@ -100,6 +103,8 @@ for _doctype in taggable_doctypes:
 
 commentable_doctypes = ["Talk Proposal"]
 doc_events["Communication"] = {"after_insert": "buzz.comments.notify_team_of_email"}
+doc_events["Email Queue"] = {"after_insert": "buzz.playground.inbox.capture_email"}
+doc_events.setdefault("Buzz Team", {})["after_insert"] = "buzz.playground.demo_data.seed_community_requests"
 extend_doctype_class = {"Comment": ["buzz.comments.TeamComment"]}
 
 fixtures = [
@@ -190,6 +195,7 @@ jinja = {
 		"buzz.emails.email_event_header",
 		"buzz.emails.email_brand",
 		"buzz.islands.island_script",
+		"buzz.playground.playground_boot",
 		"buzz.www.site_header.buzz_navbar",
 	],
 }
@@ -348,7 +354,7 @@ override_whitelisted_methods = {
 # Request Events
 # ----------------
 # before_request = ["events.utils.before_request"]
-# after_request = ["events.utils.after_request"]
+after_request = ["buzz.playground.add_noindex_header"]
 
 # Job Events
 # ----------
