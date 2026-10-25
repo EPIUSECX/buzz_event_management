@@ -40,3 +40,4 @@ buzz.patches.convert_plain_text_editor_values
 buzz.patches.subscribe_talk_participants
 buzz.patches.email_buzz_activity
 buzz.patches.add_title_theme_tokens
+buzz.patches.add_default_check_in_zones

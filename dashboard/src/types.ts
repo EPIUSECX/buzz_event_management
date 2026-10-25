@@ -341,8 +341,10 @@ export interface EventGuest {
 	ticket_type: string | null
 	registered_at: string | null
 	add_ons: GuestAddOn[]
-	// Today's check-in, if the guest has arrived.
+	// Today's check-in in the chosen zone, if the guest has arrived.
 	checked_in_at?: string | null
+	// Where the guest stands at each enabled zone, default first.
+	zones: ZoneStatus[]
 }
 
 // buzz.api.events.get_event_registration_trend
@@ -363,6 +365,22 @@ export interface RegistrationTrend {
 	by_ticket_type: TicketTypeTotal[]
 }
 
+export interface GuestZone {
+	name: string
+	title: string
+	is_default?: boolean
+	// Guests checked in at the zone, out of the tickets it lets in.
+	checked_in?: number
+	eligible?: number
+}
+
+export interface ZoneStatus {
+	name: string
+	title: string
+	allowed: boolean
+	checked_in_at: string | null
+}
+
 export interface EventGuests {
 	title: string | null
 	start_date: string | null
@@ -373,9 +391,11 @@ export interface EventGuests {
 	total: number
 	matched: number
 	checked_in: number
+	checked_in_any_zone: number
 	guests: EventGuest[]
 	has_next_page: boolean
 	filter_fields: FilterField[]
+	zones: GuestZone[]
 }
 
 export interface VerificationMethods {

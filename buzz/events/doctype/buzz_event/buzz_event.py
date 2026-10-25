@@ -14,6 +14,7 @@ from frappe.website.utils import cleanup_page_name
 from buzz import telemetry
 from buzz.api.forms.fields import validate_excluded_fields
 from buzz.events.doctype.buzz_team_settings.buzz_team_settings import get_team_settings
+from buzz.events.doctype.event_check_in_zone.event_check_in_zone import create_default_zone
 from buzz.events.doctype.sponsor_enquiry_form.sponsor_enquiry_form import create_for_event
 from buzz.ticketing.doctype.event_ticket_category.event_ticket_category import create_ticket_categories
 from buzz.utils import get_time_zone_label, only_if_app_installed
@@ -331,6 +332,11 @@ class BuzzEvent(Document):
 			frappe.delete_doc("Sponsor Enquiry Form", sponsorship_form_id, ignore_permissions=True)
 		# A community's request to list the event means nothing once the event is gone.
 		frappe.db.delete("Community Event Request", {"event": self.name})
+		# Zones come with the event, the default one included. Check-ins block the delete on
+		# their own link to the event, so the zones stay while any exist.
+		if not frappe.db.exists("Event Check In", {"event": self.name}):
+			for zone in frappe.get_all("Event Check-in Zone", {"event": self.name}, pluck="name"):
+				frappe.delete_doc("Event Check-in Zone", zone, ignore_permissions=True, ignore_on_trash=True)
 
 	def create_default_records(self):
 		records = [
@@ -340,6 +346,7 @@ class BuzzEvent(Document):
 		for record in records:
 			frappe.get_doc({**record, "event": self.name}).insert(ignore_permissions=True)
 		create_for_event(self.name)
+		create_default_zone(self.name)
 
 	def archive_event(self):
 		"""Take the event off the public site, along with the forms and registrations it takes.
