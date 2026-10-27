@@ -54,6 +54,7 @@ export interface EventProposals {
 	can_write: boolean
 	// Where talks are proposed, and whether that page still takes them.
 	proposal_link: string | null
+	proposal_form: string | null
 	proposals_closed: boolean
 	filter_fields: FilterField[]
 }
@@ -806,6 +807,7 @@ export interface EventTicketTypes {
 	title: string
 	can_write: boolean
 	registration_link: string | null
+	registration_form: string | null
 	registrations_closed: boolean
 	allow_guest_booking: boolean
 	guest_verification_method: string

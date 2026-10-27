@@ -4,9 +4,10 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe import _
 from frappe.geo.country_info import get_all as get_all_countries
-from frappe.utils.data import sbool
+from frappe.utils.data import format_date, get_url, sbool
 
 from buzz.api.forms.answers import CustomAnswers
+from buzz.api.forms.conditions import parse_rules
 from buzz.api.forms.exceptions import (
 	EventNotFound,
 	FormNotAvailable,
@@ -16,11 +17,12 @@ from buzz.api.forms.exceptions import (
 )
 from buzz.api.forms.fields import (
 	EVENT_PROPOSAL_EXCLUDE_FIELDS,
+	build_field,
 	get_auto_set_fields,
-	get_exclude_fields,
 	get_form_fields,
 	get_renderable_fields,
 	question_definition,
+	system_exclude_fields,
 )
 from buzz.api.forms.schemas import (
 	CustomFieldDefinition,
@@ -86,13 +88,17 @@ class CustomFormService:
 		return CustomFormResponse(
 			form_fields=self.renderable_fields(),
 			custom_fields=self.custom_field_definitions(),
-			form_title=self.form_doctype,
+			logic_rules=parse_rules(form.logic_rules),
+			form_title=form.title or self.form_doctype,
+			form_description=form.description,
+			submit_label=form.submit_label,
 			event=self.event_summary(),
 			closed=False,
 			closed_title=form.closed_title or _("Submissions Closed"),
 			closed_message=form.closed_message or _("Submissions for this form have closed."),
 			success_title=form.success_title or _("Thank you!"),
 			success_message=form.success_message or "",
+			redirect_url=form.redirect_url,
 		)
 
 	def closed_response(self) -> CustomFormResponse:
@@ -100,13 +106,44 @@ class CustomFormService:
 		return CustomFormResponse(
 			form_fields=[],
 			custom_fields=[],
-			form_title=self.form_doctype,
+			form_title=form.title or self.form_doctype,
 			event=self.event_summary(),
 			closed=True,
 			closed_title=form.closed_title or _("Submissions Closed"),
 			closed_message=form.closed_message or _("Submissions for this form have closed."),
 			success_title="",
 			success_message="",
+		)
+
+	def link_preview(self) -> dict:
+		"""What a shared link to the form shows: its own preview text, else the form and event names."""
+		form, event = self.form, self.event
+		image = form.meta_image or form.og_image or event.meta_image or event.og_image or event.banner_image
+		return {
+			"title": form.meta_title or self.default_preview_title(),
+			"description": form.meta_description or self.default_preview_description(),
+			# Link crawlers ignore a relative image path.
+			"image": get_url(image) if image else None,
+		}
+
+	def default_preview_title(self) -> str:
+		return f"{self.form.title} · {self.event.title}"
+
+	def default_preview_description(self) -> str:
+		intro = self.form.description or self.event.short_description or ""
+		return " ".join(part for part in [intro, self.closing_note()] if part)
+
+	def closing_note(self) -> str:
+		close_at = self.form.auto_close_at
+		if not close_at or self.form.is_closed:
+			return ""
+		submissions = {
+			"Talk Proposal": _("Proposals"),
+			"Sponsorship Enquiry": _("Enquiries"),
+			"Event Booking": _("Registrations"),
+		}
+		return _("{0} close on {1}.").format(
+			submissions.get(self.form_doctype, _("Submissions")), format_date(close_at, "d MMM")
 		)
 
 	def event_summary(self) -> FormEventSummary:
@@ -128,19 +165,28 @@ class CustomFormService:
 		)
 
 	@property
-	def exclude_fields(self) -> set:
-		return get_exclude_fields(self.form_doctype, self.form.excluded_fields)
+	def standard_rows(self) -> list:
+		"""The doctype's own fields the form asks for, in the order the organiser set."""
+		return [row for row in self.form.questions if row.is_standard and row.enabled]
 
 	def renderable_fields(self) -> list[dict]:
-		return get_form_fields(
-			self.form_doctype, self.exclude_fields, with_layout_breaks=True, event=self.event.name
-		)
+		fields = get_renderable_fields(self.form_doctype, system_exclude_fields(self.form_doctype))
+		return [
+			{
+				**build_field(fields[row.fieldname], self.event.name),
+				"label": row.label,
+				"width": row.width,
+				"order": row.idx,
+			}
+			for row in self.standard_rows
+			if row.fieldname in fields
+		]
 
 	def custom_field_definitions(self) -> list[CustomFieldDefinition]:
 		return [
 			CustomFieldDefinition(**question_definition(question))
 			for question in self.form.questions
-			if question.enabled
+			if question.enabled and not question.is_standard
 		]
 
 	def submit(self, data: dict | str, custom_fields_data: dict | str | None = None) -> str:
@@ -153,7 +199,10 @@ class CustomFormService:
 			frappe.throw(_("Could not read the submitted form. Please reload the page and try again."))
 		answers = frappe.parse_json(custom_fields_data) or {}
 		doc = frappe.get_doc(self.build_doc_data(values))
-		doc.set("additional_fields", CustomAnswers(self.form.questions).rows(answers, context=values))
+		doc.set(
+			"additional_fields",
+			CustomAnswers(self.form.questions, self.form.logic_rules).rows(answers, context=values),
+		)
 		self.prepare_submission(doc)
 		return doc.insert(ignore_permissions=True).name
 
@@ -167,11 +216,30 @@ class CustomFormService:
 		for fieldname, source in get_auto_set_fields(form_doctype).items():
 			doc_data[fieldname] = self.event.name if source == "from_route" else frappe.session.user
 
-		allowed_fieldnames = get_renderable_fields(form_doctype, self.exclude_fields)
+		allowed_fieldnames = {row.fieldname for row in self.standard_rows}
 		doc_data.update(
 			{fieldname: value for fieldname, value in data.items() if fieldname in allowed_fieldnames}
 		)
 		return doc_data
+
+
+class RegistrationFormService(CustomFormService):
+	"""The event's booking page, previewed through its registration form."""
+
+	def __init__(self, event_route: str):
+		super().__init__(event_route, form_route="")
+
+	@cached_property
+	def form(self) -> "BuzzForm":
+		form_name = frappe.db.get_value(
+			"Buzz Form", {"event": self.event.name, "form_doctype": "Event Booking"}, "name"
+		)
+		if not form_name:
+			FormNotAvailable.throw()
+		return frappe.get_doc("Buzz Form", form_name)
+
+	def default_preview_title(self) -> str:
+		return _("Register for {0}").format(self.event.title)
 
 
 def get_event_proposal_settings():

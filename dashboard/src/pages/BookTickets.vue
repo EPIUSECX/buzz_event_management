@@ -64,6 +64,9 @@
 				:taxSettings="eventBookingData.taxSettings || {}"
 				:eventDetails="eventBookingData.eventDetails || {}"
 				:customFields="eventBookingData.customFields || []"
+				:logicRules="eventBookingData.logicRules"
+				:coreFields="eventBookingData.coreFields"
+				:success="eventBookingData.success"
 				:eventRoute="eventRoute"
 				:paymentGateways="eventBookingData.paymentGateways"
 				:isGuestMode="isGuest"
@@ -78,6 +81,7 @@ import { useIntervalFn } from "@vueuse/core"
 import { Spinner, useCall, usePageMeta } from "frappe-ui"
 import { computed, reactive, ref, watch } from "vue"
 
+import type { CoreField } from "@/components/registration/coreFields"
 import { holdTokenKey } from "@/composables/useTicketHold"
 import { session } from "@/data/session"
 import type {
@@ -87,6 +91,7 @@ import type {
 	FrappeField,
 	OfflineMethod,
 } from "@/types"
+import type { LogicRule } from "@/utils/formLogic"
 
 import BookingForm from "../components/BookingForm.vue"
 
@@ -99,6 +104,9 @@ const eventBookingData = reactive<{
 	taxSettings: Record<string, any> | null
 	eventDetails: Record<string, any> | null
 	customFields: FrappeField[] | null
+	logicRules: Record<string, LogicRule[]>
+	coreFields: Record<string, CoreField[]>
+	success: { title?: string | null; message?: string | null }
 	paymentGateways: string[]
 	offlineMethods: OfflineMethod[]
 }>({
@@ -108,6 +116,9 @@ const eventBookingData = reactive<{
 	taxSettings: null,
 	eventDetails: null,
 	customFields: null,
+	logicRules: {},
+	coreFields: {},
+	success: {},
 	paymentGateways: [],
 	offlineMethods: [],
 })
@@ -164,6 +175,9 @@ const eventBookingResource = useCall<
 		}
 		eventBookingData.eventDetails = data.event_details || {}
 		eventBookingData.customFields = data.custom_fields || []
+		eventBookingData.logicRules = data.logic_rules || {}
+		eventBookingData.coreFields = data.core_fields || {}
+		eventBookingData.success = data.success || {}
 		eventBookingData.paymentGateways = data.payment_gateways || []
 		eventBookingData.offlineMethods = data.offline_methods || []
 		registrationsClosed.value = data.registrations_closed || false

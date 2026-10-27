@@ -5,8 +5,13 @@ from frappe import _
 
 from buzz.api.booking.schemas import EventBookingDataResponse, TaxSettings
 from buzz.api.booking.services import are_registrations_closed
-from buzz.api.filters.conditions import registration_questions
+from buzz.api.filters.conditions import registration_logic_rules, registration_questions
 from buzz.api.forms.fields import question_definition
+from buzz.events.doctype.buzz_form.form_types import (
+	APPLIED_TO_BY_FORM_DOCTYPE,
+	REGISTRATION_FORM_DOCTYPE,
+	form_type,
+)
 from buzz.payments import get_payment_gateways_for_event
 from buzz.ticketing.doctype.event_ticket_category.event_ticket_category import get_ordered_categories
 
@@ -40,6 +45,9 @@ def build_event_booking_data(event_route: str, hold_token: str | None = None) ->
 			tax_percentage=event_doc.tax_percentage or 0,
 		),
 		custom_fields=get_registration_custom_fields(event_doc.name),
+		core_fields=get_registration_core_fields(event_doc.name),
+		success=get_registration_success(event_doc.name),
+		logic_rules=registration_logic_rules(event_doc.name),
 		payment_gateways=payment_gateways,
 		offline_payment_enabled=len(offline_methods) > 0,
 		offline_methods=offline_methods,
@@ -111,6 +119,39 @@ def get_registration_custom_fields(event_id: str) -> list[dict]:
 		{**question_definition(question), "applied_to": question.applied_to}
 		for question in registration_questions(event_id)
 	]
+
+
+def get_registration_core_fields(event_id: str) -> dict[str, list[dict]]:
+	"""Each registration form's core fields in the organiser's order, keyed like custom_fields' applied_to."""
+	return {
+		applied_to: core_field_rows(event_id, form_doctype)
+		for form_doctype, applied_to in APPLIED_TO_BY_FORM_DOCTYPE.items()
+	}
+
+
+def core_field_rows(event_id: str, form_doctype: str) -> list[dict]:
+	form = frappe.db.get_value("Buzz Form", {"event": event_id, "form_doctype": form_doctype})
+	rows = form and frappe.get_all(
+		"Buzz Form Field",
+		filters={"parenttype": "Buzz Form", "parent": form, "is_standard": 1},
+		fields=["fieldname", "label", "width", "enabled"],
+		order_by="idx",
+	)
+	# A form without its rows still asks for the booking's own fields.
+	return rows or [
+		{"fieldname": fieldname, "label": label, "width": "Half", "enabled": 1}
+		for fieldname, label in form_type(form_doctype).core_fields.items()
+	]
+
+
+def get_registration_success(event_id: str) -> dict:
+	"""The organiser's own title and message for a finished booking."""
+	return frappe.db.get_value(
+		"Buzz Form",
+		{"event": event_id, "form_doctype": REGISTRATION_FORM_DOCTYPE},
+		["success_title as title", "success_message as message"],
+		as_dict=True,
+	) or {"title": None, "message": None}
 
 
 def get_custom_fields(event_id: str, applied_to: str, offline_payment_method: str | None = None) -> list:

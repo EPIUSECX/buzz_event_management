@@ -73,6 +73,12 @@ class EventBookingDataResponse(APIResponse):
 	available_add_ons: list
 	tax_settings: TaxSettings
 	custom_fields: list
+	# Core field rows (fieldname, label, width, enabled) per registration form, keyed like logic_rules.
+	core_fields: dict[str, list]
+	# The organiser's title and message for a finished booking, both optional.
+	success: dict
+	# Show, hide and require rules per registration form, keyed like custom_fields' applied_to.
+	logic_rules: dict
 	payment_gateways: list[str]
 	offline_payment_enabled: bool
 	offline_methods: list
@@ -118,6 +124,8 @@ class BookingConfirmationResponse(APIResponse):
 	venue: VenueDetails | None
 	booking: ConfirmationBooking
 	tickets: list[ConfirmationTicket]
+	# The organiser's title and message for a finished booking, both optional.
+	success: dict
 
 
 class BookingDetailsResponse(APIResponse):
