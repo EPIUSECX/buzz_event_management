@@ -4,6 +4,7 @@ from frappe.utils import cstr, flt
 
 from buzz.api.filters.exceptions import InvalidFilter
 from buzz.api.filters.schemas import FilterField, FilterOperator, FilterOption
+from buzz.events.doctype.buzz_form.form_types import APPLIED_TO_BY_FORM_DOCTYPE, QUESTION_FIELD_NAMES
 
 KIND_BY_FIELDTYPE = {
 	"Select": "choice",
@@ -18,6 +19,7 @@ KIND_BY_FIELDTYPE = {
 }
 # A record's Buzz Tags, matched through its Buzz Tag Link rows.
 TAGS_KEY = "tags"
+QUESTION_FIELDS = [*QUESTION_FIELD_NAMES, "idx"]
 
 NEGATED_OPERATORS = {"not in": "in", "not like": "like"}
 # Answers saved through `str()` carry Python's spelling: "True" for a tick, ['a', 'b'] for a list.
@@ -79,14 +81,26 @@ def question_fields(questions) -> list[FilterField]:
 	]
 
 
-def event_questions(event: str, **filters) -> list:
-	"""An event's enabled Buzz Custom Field questions, in form order."""
+def form_questions(event: str, form_doctype: str) -> list:
+	"""The enabled questions of the event's form of that doctype, in form order."""
+	form_name = frappe.db.get_value("Buzz Form", {"event": event, "form_doctype": form_doctype}, "name")
+	if not form_name:
+		return []
 	return frappe.get_all(
-		"Buzz Custom Field",
-		filters={"event": event, "enabled": 1, **filters},
-		fields=["fieldname", "label", "fieldtype", "options", "applied_to"],
-		order_by="order asc",
+		"Buzz Form Field",
+		filters={"parenttype": "Buzz Form", "parent": form_name, "enabled": 1},
+		fields=QUESTION_FIELDS,
+		order_by="idx",
 	)
+
+
+def registration_questions(event: str) -> list:
+	"""Booking then attendee questions, each tagged with what the booking page calls it."""
+	return [
+		frappe._dict(question, applied_to=applied_to)
+		for form_doctype, applied_to in APPLIED_TO_BY_FORM_DOCTYPE.items()
+		for question in form_questions(event, form_doctype)
+	]
 
 
 def question_options(row) -> list[tuple[str, str]]:

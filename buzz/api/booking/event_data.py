@@ -5,6 +5,8 @@ from frappe import _
 
 from buzz.api.booking.schemas import EventBookingDataResponse, TaxSettings
 from buzz.api.booking.services import are_registrations_closed
+from buzz.api.filters.conditions import registration_questions
+from buzz.api.forms.fields import question_definition
 from buzz.payments import get_payment_gateways_for_event
 from buzz.ticketing.doctype.event_ticket_category.event_ticket_category import get_ordered_categories
 
@@ -37,7 +39,7 @@ def build_event_booking_data(event_route: str, hold_token: str | None = None) ->
 			tax_label=event_doc.tax_label or "Tax",
 			tax_percentage=event_doc.tax_percentage or 0,
 		),
-		custom_fields=get_custom_fields(event_doc.name, applied_to=None),
+		custom_fields=get_registration_custom_fields(event_doc.name),
 		payment_gateways=payment_gateways,
 		offline_payment_enabled=len(offline_methods) > 0,
 		offline_methods=offline_methods,
@@ -104,12 +106,15 @@ def get_available_add_ons(event_id: str) -> list:
 	return add_ons
 
 
-def get_custom_fields(
-	event_id: str, applied_to: str | None, offline_payment_method: str | None = None
-) -> list:
-	filters = {"event": event_id, "enabled": 1}
-	if applied_to:
-		filters["applied_to"] = applied_to
+def get_registration_custom_fields(event_id: str) -> list[dict]:
+	return [
+		{**question_definition(question), "applied_to": question.applied_to}
+		for question in registration_questions(event_id)
+	]
+
+
+def get_custom_fields(event_id: str, applied_to: str, offline_payment_method: str | None = None) -> list:
+	filters = {"event": event_id, "enabled": 1, "applied_to": applied_to}
 	if offline_payment_method:
 		filters["offline_payment_method"] = offline_payment_method
 	return frappe.db.get_all("Buzz Custom Field", filters=filters, fields=["*"], order_by="order")

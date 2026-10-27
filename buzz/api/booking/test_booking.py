@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import frappe
@@ -16,11 +17,12 @@ from buzz.api.booking.exceptions import (
 	InvoiceDetailsMissing,
 	RegistrationsClosed,
 )
+from buzz.api.forms.exceptions import UnknownQuestions
 from buzz.tests.base_test_cases import BOOKER, OUTSIDER, BookingTestCase
 from buzz.tests.factories import (
 	BuzzCouponCodeFactory,
-	BuzzCustomFieldFactory,
 	BuzzEventFactory,
+	BuzzFormFactory,
 	EventTicketCategoryFactory,
 	EventTicketTypeFactory,
 	OfflinePaymentMethodFactory,
@@ -170,7 +172,7 @@ class TestGetEventBookingData(BookingTestCase):
 		self.assertEqual([row["name"] for row in payload.ticket_categories], [first.name, later.name])
 
 	def test_registrations_closed_flag(self):
-		self.set_event({"registrations_close_at": "2020-01-01 00:00:00"})
+		BuzzFormFactory.set_registration_cutoff(self.event.name, "2020-01-01 00:00:00")
 		self.assertTrue(get_event_booking_data(self.event.route).registrations_closed)
 
 	def test_unpublished_event_is_not_found(self):
@@ -178,23 +180,49 @@ class TestGetEventBookingData(BookingTestCase):
 		with self.assertRaises(frappe.DoesNotExistError):
 			get_event_booking_data(self.event.route)
 
+	def test_custom_fields_are_the_registration_questions(self):
+		BuzzFormFactory.add_question(
+			self.event.name,
+			label="Company",
+			fieldname="company",
+			mandatory=1,
+			placeholder="Acme Pvt Ltd",
+		)
+		BuzzFormFactory.add_question(
+			self.event.name,
+			"Event Booking Attendee",
+			label="Diet",
+			fieldname="diet",
+			fieldtype="Select",
+			options="Veg\nVegan",
+		)
+
+		fields = get_event_booking_data(self.event.route).custom_fields
+
+		self.assertEqual(
+			[(field["fieldname"], field["applied_to"], field["mandatory"]) for field in fields],
+			[("company", "Booking", 1), ("diet", "Ticket", 0)],
+		)
+		self.assertEqual(fields[0]["placeholder"], "Acme Pvt Ltd")
+		self.assertEqual(fields[1]["options"], "Veg\nVegan")
+
 
 class TestProcessBooking(BookingTestCase):
 	def test_free_booking_redirects_to_success(self):
-		payload = process_booking(self.booking_request()).__json__()
+		payload = self.process_as_booker(self.booking_request()).__json__()
 		self.assertEqual(set(payload), {"booking_name", "redirect_to"})
 		self.assertEqual(frappe.db.get_value("Event Booking", payload["booking_name"], "docstatus"), 1)
 
 	def test_unpublished_event_is_refused(self):
 		self.set_event({"is_published": 0})
 		with self.assertRaises(frappe.ValidationError):
-			process_booking(self.booking_request())
+			self.process_as_booker(self.booking_request())
 		self.assertIn("Event is not live", frappe.local.message_log[-1]["message"])
 
 	def test_closed_registrations_are_refused(self):
-		self.set_event({"registrations_close_at": "2020-01-01 00:00:00"})
+		BuzzFormFactory.set_registration_cutoff(self.event.name, "2020-01-01 00:00:00")
 		with self.assertRaises(RegistrationsClosed):
-			process_booking(self.booking_request())
+			self.process_as_booker(self.booking_request())
 		self.assertEqual(RegistrationsClosed.http_status_code, 409)
 		self.assertEqual(frappe.local.message_log[-1]["title"], "Registrations Closed")
 
@@ -215,13 +243,15 @@ class TestProcessBooking(BookingTestCase):
 		# process_booking commits, so a sibling test's method row survives rollback;
 		# pin the lookup to a name that cannot exist.
 		with self.assertRaises(frappe.ValidationError):
-			process_booking(self.make_paid_request(is_offline=True, offline_payment_method="no-such-method"))
+			self.process_as_booker(
+				self.make_paid_request(is_offline=True, offline_payment_method="no-such-method")
+			)
 		self.assertIn("Offline payment is not enabled", frappe.local.message_log[-1]["message"])
 
 	def test_offline_booking_awaits_approval(self):
 		OfflinePaymentMethodFactory.create(event=self.event.name)
 
-		payload = process_booking(self.make_paid_request(is_offline=True)).__json__()
+		payload = self.process_as_booker(self.make_paid_request(is_offline=True)).__json__()
 		self.assertEqual(set(payload), {"booking_name", "offline_payment"})
 		self.assertIs(payload["offline_payment"], True)
 		booking = frappe.db.get_value(
@@ -239,7 +269,7 @@ class TestProcessBooking(BookingTestCase):
 			patch("buzz.api.booking.services.get_payment_link_for_booking", return_value="/pay"),
 			patch("frappe.sendmail") as sendmail,
 		):
-			process_booking(request)
+			self.process_as_booker(request)
 
 		sendmail.assert_not_called()
 
@@ -254,7 +284,7 @@ class TestProcessBooking(BookingTestCase):
 		self.addCleanup(frappe.set_user, "Administrator")
 
 		with patch("frappe.sendmail") as sendmail:
-			booking_name = process_booking(request).booking_name
+			booking_name = self.process_as_booker(request).booking_name
 
 			sendmail.assert_called_once()
 			self.assertEqual(sendmail.call_args[1]["template"], "offline_booking_acknowledgement")
@@ -291,7 +321,7 @@ class TestBookingAddOnPricing(BookingTestCase):
 		# The paid path builds a payment link from a gateway that tests do not configure;
 		# stub it so the booking is created and its stored amounts can be read back.
 		with patch("buzz.api.booking.services.get_payment_link_for_booking", return_value="/pay"):
-			process_booking(self.booking_request(attendees=attendees))
+			self.process_as_booker(self.booking_request(attendees=attendees))
 		return frappe.get_last_doc("Event Booking")
 
 	def test_client_supplied_price_is_ignored(self):
@@ -335,7 +365,7 @@ class TestBookingSelectionValidation(BookingTestCase):
 
 	def book(self, attendees):
 		# These payloads are rejected in validate, before finalize reaches a payment gateway.
-		process_booking(self.booking_request(attendees=attendees))
+		self.process_as_booker(self.booking_request(attendees=attendees))
 
 	def test_ticket_type_from_another_event_is_refused(self):
 		foreign_ticket_type = EventTicketTypeFactory.create(event=self.foreign_event.name)
@@ -366,19 +396,27 @@ class TestBookingSelectionValidation(BookingTestCase):
 		self.assertEqual(booking.attendees[0].add_on_total, 500)
 
 
-class TestBookingPhoneCustomFields(BookingTestCase):
+class TestBookingCustomFields(BookingTestCase):
 	def setUp(self):
 		super().setUp()
-		self.phone_field = BuzzCustomFieldFactory.create(
-			event=self.event.name, label="Contact Number", fieldname="contact_number", fieldtype="Phone"
-		)
+		for form_doctype in ("Event Booking", "Event Booking Attendee"):
+			BuzzFormFactory.clear_questions(self.event.name, form_doctype)
+			BuzzFormFactory.add_question(
+				self.event.name,
+				form_doctype,
+				label="Contact Number",
+				fieldname="contact_number",
+				fieldtype="Phone",
+			)
 
 	def test_invalid_booking_level_phone_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
-			process_booking(self.booking_request(booking_custom_fields={"contact_number": "+91-12345"}))
+			self.process_as_booker(
+				self.booking_request(booking_custom_fields={"contact_number": "+91-12345"})
+			)
 
 	def test_valid_booking_level_phone_is_stored(self):
-		payload = process_booking(
+		payload = self.process_as_booker(
 			self.booking_request(booking_custom_fields={"contact_number": VALID_PHONE})
 		).__json__()
 		stored = frappe.db.get_value(
@@ -412,7 +450,6 @@ class TestBookingPhoneCustomFields(BookingTestCase):
 		self.assertTrue(frappe.cache.get_value(cache_key))
 
 	def test_invalid_attendee_level_phone_is_still_refused(self):
-		frappe.db.set_value("Buzz Custom Field", self.phone_field.name, "applied_to", "Ticket")
 		attendees = [
 			{
 				"first_name": "Booker",
@@ -422,7 +459,158 @@ class TestBookingPhoneCustomFields(BookingTestCase):
 			}
 		]
 		with self.assertRaises(frappe.ValidationError):
-			process_booking(self.booking_request(attendees=attendees))
+			self.process_as_booker(self.booking_request(attendees=attendees))
+
+	def test_a_required_booking_question_must_be_answered(self):
+		BuzzFormFactory.add_question(self.event.name, label="Company", fieldname="company", mandatory=1)
+
+		with self.assertRaises(frappe.MandatoryError):
+			self.process_as_booker(self.booking_request())
+
+	def test_an_answer_outside_the_select_options_is_refused(self):
+		BuzzFormFactory.add_question(
+			self.event.name,
+			label="Diet",
+			fieldname="diet",
+			fieldtype="Select",
+			options="Veg\nVegan",
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			self.process_as_booker(self.booking_request(booking_custom_fields={"diet": "Meat"}))
+
+
+class TestAttendeeQuestionConditions(BookingTestCase):
+	def setUp(self):
+		super().setUp()
+		self.other_ticket_type = EventTicketTypeFactory.create(event=self.event.name, title="Other")
+		BuzzFormFactory.clear_questions(self.event.name, "Event Booking Attendee")
+		BuzzFormFactory.add_question(
+			self.event.name,
+			"Event Booking Attendee",
+			label="Diet",
+			fieldname="diet",
+			depends_on=json.dumps([["ticket_type", "in", [str(self.free_ticket_type.name)]]]),
+		)
+
+	def attendee(self, ticket_type, **custom_fields):
+		return {
+			"first_name": "Booker",
+			"email": "booker@example.com",
+			"ticket_type": str(ticket_type.name),
+			"custom_fields": custom_fields,
+		}
+
+	def test_an_answer_for_another_ticket_type_is_dropped(self):
+		self.process_as_booker(
+			self.booking_request(attendees=[self.attendee(self.other_ticket_type, diet="Veg")])
+		)
+
+		ticket = frappe.get_last_doc("Event Ticket")
+		self.assertEqual(ticket.additional_fields, [])
+
+	def test_an_answer_for_the_named_ticket_type_reaches_the_ticket(self):
+		self.process_as_booker(
+			self.booking_request(attendees=[self.attendee(self.free_ticket_type, diet="Veg")])
+		)
+
+		ticket = frappe.get_last_doc("Event Ticket")
+		self.assertEqual([(row.fieldname, row.value) for row in ticket.additional_fields], [("diet", "Veg")])
+
+
+class TestRegistrationAnswers(BookingTestCase):
+	def setUp(self):
+		super().setUp()
+		self.other_ticket_type = EventTicketTypeFactory.create(event=self.event.name, title="Other")
+		for form_doctype in ("Event Booking", "Event Booking Attendee"):
+			BuzzFormFactory.clear_questions(self.event.name, form_doctype)
+		BuzzFormFactory.add_question(self.event.name, label="Company", fieldname="company")
+		BuzzFormFactory.add_question(
+			self.event.name,
+			"Event Booking Attendee",
+			label="Diet",
+			fieldname="diet",
+			fieldtype="Select",
+			options="Veg\nVegan",
+		)
+		BuzzFormFactory.add_question(
+			self.event.name,
+			"Event Booking Attendee",
+			label="T-shirt size",
+			fieldname="tshirt_size",
+			depends_on=json.dumps([["ticket_type", "in", [str(self.free_ticket_type.name)]]]),
+		)
+
+	def test_answers_land_on_the_booking_its_attendees_and_their_tickets(self):
+		attendees = [
+			self.attendee("first@example.com", self.free_ticket_type, diet="Veg", tshirt_size="M"),
+			self.attendee("second@example.com", self.other_ticket_type, diet="Vegan", tshirt_size="L"),
+		]
+
+		booking_name = self.process_as_booker(
+			self.booking_request(attendees=attendees, booking_custom_fields={"company": "Acme"})
+		).booking_name
+
+		booking = frappe.get_doc("Event Booking", booking_name)
+		self.assertEqual(booking.user, BOOKER)
+		self.assertEqual(
+			[(row.fieldname, row.value) for row in booking.additional_fields], [("company", "Acme")]
+		)
+		self.assertEqual(
+			[frappe.parse_json(attendee.custom_fields) for attendee in booking.attendees],
+			[{"diet": "Veg", "tshirt_size": "M"}, {"diet": "Vegan"}],
+		)
+		self.assertEqual(
+			self.ticket_answers(booking_name),
+			{
+				"first@example.com": {"diet": "Veg", "tshirt_size": "M"},
+				"second@example.com": {"diet": "Vegan"},
+			},
+		)
+
+	def test_a_condition_on_an_attendee_field_reads_what_the_attendee_sent(self):
+		BuzzFormFactory.add_question(
+			self.event.name,
+			"Event Booking Attendee",
+			label="Badge name",
+			fieldname="badge_name",
+			depends_on=json.dumps([["email", "=", "first@example.com"]]),
+		)
+		attendees = [
+			self.attendee("first@example.com", self.other_ticket_type, diet="Veg", badge_name="Ada"),
+			self.attendee("second@example.com", self.other_ticket_type, diet="Veg", badge_name="Bob"),
+		]
+
+		booking_name = self.process_as_booker(self.booking_request(attendees=attendees)).booking_name
+
+		self.assertEqual(
+			self.ticket_answers(booking_name),
+			{
+				"first@example.com": {"diet": "Veg", "badge_name": "Ada"},
+				"second@example.com": {"diet": "Veg"},
+			},
+		)
+
+	def test_a_booking_question_is_not_asked_of_attendees(self):
+		attendees = [self.attendee("first@example.com", self.free_ticket_type, company="Acme")]
+
+		with self.assertRaises(UnknownQuestions):
+			self.process_as_booker(self.booking_request(attendees=attendees))
+
+	def attendee(self, email: str, ticket_type, **custom_fields):
+		return {
+			"first_name": "Guest",
+			"email": email,
+			"ticket_type": str(ticket_type.name),
+			"custom_fields": custom_fields,
+		}
+
+	def ticket_answers(self, booking_name: str) -> dict:
+		answers = {}
+		for name in frappe.get_all("Event Ticket", {"booking": booking_name}, pluck="name"):
+			ticket = frappe.get_doc("Event Ticket", name)
+			answers[ticket.attendee_email] = {row.fieldname: row.value for row in ticket.additional_fields}
+		return answers
 
 
 class TestGetBookingDetails(BookingTestCase):
@@ -434,7 +622,7 @@ class TestGetBookingDetails(BookingTestCase):
 			frappe.set_user("Administrator")
 
 	def test_shape(self):
-		booking_name = process_booking(self.booking_request()).booking_name
+		booking_name = self.process_as_booker(self.booking_request()).booking_name
 		payload = get_booking_details(booking_name).__json__()
 		self.assertEqual(set(payload), DETAILS_FIELDS)
 		self.assertEqual(payload["doc"].name, booking_name)
@@ -466,13 +654,15 @@ class TestBookingCouponCode(BookingTestCase):
 	def test_typed_code_is_resolved_to_the_coupon(self):
 		coupon = BuzzCouponCodeFactory.create(event=self.event.name, code="WELCOME")
 
-		booking_name = process_booking(self.booking_request(coupon_code="welcome")).__json__()["booking_name"]
+		booking_name = self.process_as_booker(self.booking_request(coupon_code="welcome")).__json__()[
+			"booking_name"
+		]
 
 		self.assertEqual(frappe.db.get_value("Event Booking", booking_name, "coupon_code"), coupon.name)
 
 	def test_unknown_code_is_refused(self):
 		with self.assertRaises(InvalidCoupon):
-			process_booking(self.booking_request(coupon_code="NO-SUCH-CODE"))
+			self.process_as_booker(self.booking_request(coupon_code="NO-SUCH-CODE"))
 
 
 class BookingSummaryTestCase(BookingTestCase):
@@ -577,7 +767,7 @@ class TestGetBookingSummary(BookingSummaryTestCase):
 
 class TestBookingBuyerAndInvoice(BookingTestCase):
 	def booked(self, **overrides):
-		booking_name = process_booking(self.booking_request(**overrides)).booking_name
+		booking_name = self.process_as_booker(self.booking_request(**overrides)).booking_name
 		return frappe.get_doc("Event Booking", booking_name)
 
 	def test_buyer_details_are_stored(self):
@@ -591,11 +781,11 @@ class TestBookingBuyerAndInvoice(BookingTestCase):
 
 	def test_an_invalid_buyer_phone_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
-			process_booking(self.booking_request(buyer_phone="not a phone"))
+			self.process_as_booker(self.booking_request(buyer_phone="not a phone"))
 
 	def test_buyer_falls_back_to_the_booking_user(self):
 		booking = self.booked()
-		self.assertEqual(booking.buyer_email, "admin@example.com")
+		self.assertEqual(booking.buyer_email, BOOKER)
 
 	def test_invoice_details_are_stored_when_the_event_charges_tax(self):
 		self.set_event({"apply_tax": 1})
@@ -614,7 +804,7 @@ class TestBookingBuyerAndInvoice(BookingTestCase):
 	def test_an_invoice_without_a_business_name_is_refused(self):
 		self.set_event({"apply_tax": 1})
 		with self.assertRaises(InvoiceDetailsMissing):
-			process_booking(self.booking_request(invoice_requested=True, tax_id="29ABCDE1234F1Z5"))
+			self.process_as_booker(self.booking_request(invoice_requested=True, tax_id="29ABCDE1234F1Z5"))
 
 	def test_invoice_details_are_ignored_without_tax(self):
 		self.set_event({"apply_tax": 0})

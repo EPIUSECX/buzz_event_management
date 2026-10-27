@@ -5,10 +5,8 @@ from typing import TYPE_CHECKING
 import frappe
 from frappe import _
 from frappe.utils import (
-	get_datetime,
-	get_datetime_in_timezone,
+	cstr,
 	get_fullname,
-	get_system_timezone,
 	validate_email_address,
 	validate_phone_number_with_country_code,
 )
@@ -28,13 +26,21 @@ from buzz.api.booking.schemas import (
 	OfflineBookingResponse,
 	PaymentLinkResponse,
 )
+from buzz.api.filters.conditions import form_questions
+from buzz.api.forms.answers import CustomAnswers
+from buzz.events.doctype.buzz_form.form_types import (
+	ATTENDEE_FORM_DOCTYPE,
+	REGISTRATION_FORM_DOCTYPE,
+	event_form,
+	is_registration_closed,
+)
 from buzz.payments import get_payment_link_for_booking
 from buzz.ticketing.doctype.buzz_coupon_code.buzz_coupon_code import BuzzCouponCode
 from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import (
 	default_currency,
 	start_capacity_transaction,
 )
-from buzz.utils import ZOOM_BACKED_CATEGORIES, build_event_datetimes
+from buzz.utils import ZOOM_BACKED_CATEGORIES
 
 if TYPE_CHECKING:
 	from buzz.events.doctype.buzz_event.buzz_event import BuzzEvent
@@ -57,7 +63,7 @@ class BookingService:
 		start_capacity_transaction()
 		self.validate_event()
 		self.validate_offline_currency()
-		self.validate_phone_fields()
+		self.validate_answers()
 		self.validate_add_ons()
 		booking = self.build_booking()
 		booking.insert(ignore_permissions=True)
@@ -75,17 +81,27 @@ class BookingService:
 		if are_registrations_closed(self.event):
 			RegistrationsClosed.throw()
 
-	def validate_phone_fields(self) -> None:
-		"""Validate every Phone custom field, booking-level and attendee-level, before
-		anything with a side effect runs.
+	def validate_answers(self) -> None:
+		"""Check every registration answer, booking- and attendee-level, before anything with
+		a side effect runs.
 
-		verify_guest_otp deletes the code from the cache, and no rollback puts it back, so a
-		phone rejected later in build_booking would cost the guest a fresh OTP.
+		verify_guest_otp deletes the code from the cache, and no rollback puts it back, so an
+		answer rejected later in build_booking would cost the guest a fresh OTP.
 		"""
-		phone_field_map = self.phone_field_labels()
-		validate_custom_fields(self.request.booking_custom_fields or {}, phone_field_map)
-		for attendee in self.request.attendees:
-			validate_custom_fields(attendee.get("custom_fields") or {}, phone_field_map)
+		# A condition may name any standard field the form shows, so each gets the values sent.
+		event = self.request.event
+		booking_questions = CustomAnswers(form_questions(event, REGISTRATION_FORM_DOCTYPE))
+		attendee_questions = CustomAnswers(form_questions(event, ATTENDEE_FORM_DOCTYPE))
+		self.booking_answers = booking_questions.rows(
+			self.request.booking_custom_fields or {}, self.request.model_dump()
+		)
+		self.attendee_answers = [
+			attendee_questions.rows(
+				attendee.get("custom_fields") or {},
+				{**attendee, "ticket_type": cstr(attendee.get("ticket_type"))},
+			)
+			for attendee in self.request.attendees
+		]
 
 	def validate_add_ons(self) -> None:
 		"""Every add-on named in the request must be an enabled add-on of this event, and
@@ -205,32 +221,13 @@ class BookingService:
 			)
 
 	def append_custom_fields(self, booking: "EventBooking") -> None:
-		if not self.request.booking_custom_fields:
-			return
-		definitions = frappe.db.get_all(
-			"Buzz Custom Field",
-			filters={"event": self.request.event, "enabled": 1, "applied_to": "Booking"},
-			fields=["fieldname", "label", "fieldtype"],
-		)
-		definition_map = {definition["fieldname"]: definition for definition in definitions}
-
-		for field_name, field_value in self.request.booking_custom_fields.items():
-			if field_value and field_name in definition_map:
-				definition = definition_map[field_name]
-				booking.append(
-					"additional_fields",
-					{
-						"fieldname": field_name,
-						"value": str(field_value),
-						"label": definition["label"],
-						"fieldtype": definition["fieldtype"],
-					},
-				)
+		for answer in self.booking_answers:
+			booking.append("additional_fields", answer)
 
 	def append_attendees(self, booking: "EventBooking") -> None:
 		self.validate_zoom_last_names()
-		for attendee in self.request.attendees:
-			booking.append("attendees", self.attendee_row(attendee))
+		for attendee, answers in zip(self.request.attendees, self.attendee_answers, strict=True):
+			booking.append("attendees", self.attendee_row(attendee, answers))
 
 	def validate_zoom_last_names(self) -> None:
 		if self.event.category not in ZOOM_BACKED_CATEGORIES:
@@ -239,24 +236,15 @@ class BookingService:
 			if not (attendee.get("last_name") or "").strip():
 				frappe.throw(_("Last name is required for all attendees in Zoom events"))
 
-	def phone_field_labels(self) -> dict:
-		"""Label by fieldname for every Phone custom field on the event, booking- and
-		attendee-level alike, so `applied_to` is deliberately not filtered on."""
-		phone_fields = frappe.db.get_all(
-			"Buzz Custom Field",
-			filters={"event": self.request.event, "enabled": 1, "fieldtype": "Phone"},
-			fields=["fieldname", "label"],
-		)
-		return {field.fieldname: field.label for field in phone_fields}
-
-	def attendee_row(self, attendee: dict) -> dict:
+	def attendee_row(self, attendee: dict, answers: list[dict]) -> dict:
 		first_name, last_name = resolve_attendee_names(attendee)
 
 		add_ons = attendee.get("add_ons", None)
 		if add_ons:
 			add_ons = create_add_on_doc(f"{first_name} {last_name}".strip(), add_ons)
 
-		custom_fields = attendee.get("custom_fields", {})
+		values = attendee.get("custom_fields") or {}
+		custom_fields = {answer["fieldname"]: values[answer["fieldname"]] for answer in answers}
 
 		return {
 			"first_name": first_name,
@@ -345,15 +333,7 @@ class BookingService:
 
 
 def are_registrations_closed(event_doc) -> bool:
-	event_timezone = event_doc.time_zone or get_system_timezone()
-	current_datetime_in_event_timezone = get_datetime_in_timezone(event_timezone).replace(tzinfo=None)
-
-	if event_doc.registrations_close_at:
-		return current_datetime_in_event_timezone > get_datetime(event_doc.registrations_close_at)
-
-	# No explicit cutoff set - registrations close once the event itself has ended.
-	_event_start_datetime, event_end_datetime = build_event_datetimes(event_doc)
-	return current_datetime_in_event_timezone > event_end_datetime
+	return is_registration_closed(event_form(event_doc.name, REGISTRATION_FORM_DOCTYPE), event_doc)
 
 
 def resolve_attendee_names(attendee: dict) -> tuple[str, str]:
@@ -366,12 +346,6 @@ def resolve_attendee_names(attendee: dict) -> tuple[str, str]:
 		last_name = last_name or (name_parts[1] if len(name_parts) > 1 else "")
 
 	return first_name, last_name
-
-
-def validate_custom_fields(custom_fields_data: dict, phone_field_map: dict) -> None:
-	for field_name, field_value in custom_fields_data.items():
-		if field_value and field_name in phone_field_map:
-			validate_phone_number_with_country_code(str(field_value), phone_field_map[field_name])
 
 
 def create_add_on_doc(attendee_name: str, add_ons: list[dict]):

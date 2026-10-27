@@ -28,10 +28,12 @@ def submit_custom_form(
 
 
 def form_service(event_route: str, form_route: str):
+	# Imported here: both modules read this package, so a module-level import cycles.
 	from buzz.api.sponsorships.forms import SponsorFormService
+	from buzz.events.doctype.buzz_form.form_types import SPONSORSHIP_FORM_DOCTYPE
 
 	service = CustomFormService(event_route, form_route)
-	if frappe.db.exists("Sponsor Enquiry Form", {"event": service.event.name, "route": form_route}):
+	if service.form_doctype == SPONSORSHIP_FORM_DOCTYPE:
 		return SponsorFormService(event_route, form_route)
 	return service
 

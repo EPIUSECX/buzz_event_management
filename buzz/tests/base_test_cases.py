@@ -3,12 +3,14 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
+from buzz.api.booking import process_booking
 from buzz.api.booking.schemas import BookingRequest
 from buzz.api.booking.services import create_add_on_doc
 from buzz.payments import handle_refund_notification
 from buzz.tests.factories import (
 	BuzzCouponCodeFactory,
 	BuzzEventFactory,
+	BuzzFormFactory,
 	BuzzTeamFactory,
 	EventBookingFactory,
 	EventPaymentFactory,
@@ -45,12 +47,18 @@ class BookingTestCase(IntegrationTestCase):
 		self.enterContext(self.set_user("Administrator"))
 		frappe.clear_messages()
 		self.addCleanup(frappe.clear_document_cache, "Buzz Event", self.event.name)
-		self.set_event({"is_published": 1, "registrations_close_at": None, "allow_guest_booking": 0})
+		self.set_event({"is_published": 1, "allow_guest_booking": 0})
+		BuzzFormFactory.set_registration_cutoff(self.event.name, None)
 		self.free_ticket_type = EventTicketTypeFactory.create(event=self.event.name)
 
 	def set_event(self, values):
 		frappe.db.set_value("Buzz Event", self.event.name, values)
 		frappe.clear_document_cache("Buzz Event", self.event.name)
+
+	def process_as_booker(self, request: BookingRequest):
+		"""Bookings come from website users; a System User would pass checks they must meet."""
+		with self.set_user(self.booker):
+			return process_booking(request)
 
 	def enable_phone_otp(self):
 		self.set_event({"allow_guest_booking": 1, "guest_verification_method": "Phone OTP"})

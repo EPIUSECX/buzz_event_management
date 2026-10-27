@@ -42,3 +42,10 @@ buzz.patches.email_buzz_activity
 buzz.patches.add_title_theme_tokens
 buzz.patches.add_default_check_in_zones
 buzz.patches.use_buzz_footer
+buzz.patches.move_sponsor_enquiry_forms_to_buzz_form
+buzz.patches.move_event_forms_to_buzz_form
+buzz.patches.move_registration_questions_to_buzz_form
+buzz.patches.move_registration_close_to_buzz_form
+buzz.patches.reshape_event_template_questions
+buzz.patches.delete_moved_custom_fields
+buzz.patches.drop_buzz_event_form_table
