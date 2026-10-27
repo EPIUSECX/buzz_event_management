@@ -67,6 +67,7 @@ jobs:
       - name: Setup Bench
         uses: ./.github/actions/setup-bench
         with:
+          bma-integrations-token: ${{ secrets.BMA_INTEGRATIONS_TOKEN }}
           # test_buzz_event imports zoom_integration.tests.zoom_fixtures.
           extra-app-url: https://github.com/bwhtech/zoom_integration
           frappe-branch: ${{ matrix.frappe-branch }}

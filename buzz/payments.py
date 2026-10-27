@@ -10,7 +10,7 @@ class RefundNotification(BaseModel):
 	"""The refund a Razorpay `refund.processed` or `refund.failed` webhook carries.
 
 	The fields sit at `payload.refund.entity` in the webhook body, and every one
-	of them is mandatory: the payments app hands us refund events only, and a
+	of them is mandatory: bma_integrations hands us refund events only, and a
 	refund event without them is broken rather than uninteresting.
 	"""
 
@@ -49,9 +49,25 @@ def resolve_payment_gateway(event: str, payment_gateway: str | None) -> str:
 
 
 def get_controller(payment_gateway):
-	from payments.utils import get_payment_gateway_controller
+	from bma_integrations.payments.utils import get_payment_gateway_controller
 
 	return get_payment_gateway_controller(payment_gateway)
+
+
+def gateway_settings(payment_gateway: str) -> str | None:
+	"""The settings doctype behind a gateway, e.g. "Payfast Settings" for "Payfast-Main"."""
+	return frappe.db.get_value("Payment Gateway", payment_gateway, "gateway_settings")
+
+
+def settles_through_checkout(payment_gateway: str) -> bool:
+	"""Whether the gateway reports the outcome against the checkout bma_integrations logs.
+
+	PayFast, Peach, Paystack, Bob Pay and Stitch do. The payment id is then the
+	checkout's own id, and refunds go through `refund_document`.
+	"""
+	from bma_integrations.payments.references import CHECKOUT_GATEWAYS
+
+	return gateway_settings(payment_gateway) in CHECKOUT_GATEWAYS
 
 
 def get_payment_link_for_booking(
@@ -169,13 +185,18 @@ def mark_payment_as_received(reference_doctype: str, reference_docname: str):
 			"reference_doctype": reference_doctype,
 			"reference_docname": reference_docname,
 		},
+		fields=["name", "request_id", "data"],
 		order_by="creation desc",
 		limit=1,
 	)
 
 	if len(request):
-		data = frappe.db.get_value("Integration Request", request[0].name, "data")
-		data = frappe.parse_json(data)
+		data = frappe.parse_json(request[0].data)
+
+		if data.get("gateway") and not data.get("payment"):
+			# A checkout bma_integrations logged: it carries the gateway's own id.
+			mark_checkout_as_received(reference_doctype, reference_docname, request[0].request_id)
+			return
 
 		payment_gateway = data.get("payment_gateway")
 		if payment_gateway == "Razorpay":
@@ -203,6 +224,23 @@ def mark_payment_as_received(reference_doctype: str, reference_docname: str):
 		)
 
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+
+def mark_checkout_as_received(reference_doctype: str, reference_docname: str, payment_id: str) -> None:
+	"""Mark the latest payment for the document received, with the id of the checkout that paid it."""
+	payment = frappe.get_all(
+		"Event Payment",
+		{"reference_doctype": reference_doctype, "reference_docname": reference_docname},
+		order_by="creation desc",
+		pluck="name",
+		limit=1,
+	)
+	if payment:
+		frappe.db.set_value(
+			"Event Payment",
+			payment[0],
+			{"payment_received": 1, "payment_id": payment_id, "order_id": payment_id},
+		)
 
 
 def handle_refund_notification(doctype: str, docname: str) -> None:

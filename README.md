@@ -42,7 +42,7 @@ Every published event gets a themed page with its schedule, speakers, sponsors, 
 
 #### Registration and payments
 
-The booking form builds itself from the event's ticket types, add-ons, and custom fields. It supports coupons, GST, multiple attendees per booking, offline payments, and online payments through Frappe's [Payments](https://github.com/frappe/payments) app. Refunds sync back from the gateway.
+The booking form builds itself from the event's ticket types, add-ons, and custom fields. It supports coupons, GST, multiple attendees per booking, offline payments, and online payments through the payment gateways in [bma_integrations](https://github.com/EPIUSECX/bma_integrations): PayFast, Peach Payments, Paystack, Bob Pay and Stitch for South Africa, and Razorpay, Stripe, PayPal and the others it carries. Refunds sync back from the gateway.
 
 ![Booking form](.github/images/booking-form.png)
 
@@ -74,11 +74,11 @@ Volunteers scan ticket QR codes at `/b/check-in` to check guests in.
 
 ### Installation
 
-Install with the [bench](https://github.com/frappe/bench) CLI. Buzz needs Frappe v16 or v17 and the Payments app.
+Install with the [bench](https://github.com/frappe/bench) CLI. Buzz needs Frappe v16 or v17 and the bma_integrations app.
 
 ```bash
 cd $PATH_TO_YOUR_BENCH
-bench get-app payments
+bench get-app https://github.com/EPIUSECX/bma_integrations
 bench get-app BuildWithHussain/buzz --branch main
 bench --site <your-site> install-app buzz
 ```

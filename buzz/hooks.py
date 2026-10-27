@@ -8,7 +8,7 @@ app_license = "agpl-3.0"
 # Apps
 # ------------------
 
-required_apps = ["frappe/payments"]
+required_apps = ["EPIUSECX/bma_integrations"]
 
 export_python_type_annotations = True
 

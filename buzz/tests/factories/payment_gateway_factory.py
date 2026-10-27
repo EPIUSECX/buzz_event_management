@@ -1,8 +1,8 @@
 from typing import Any
 
 import frappe
+from bma_integrations.payments.doctype.payment_gateway.payment_gateway import PaymentGateway
 from frappe_factory_bot.frappe_factory_bot.base_factory import BaseFactory
-from payments.payments.doctype.payment_gateway.payment_gateway import PaymentGateway
 
 
 class PaymentGatewayFactory(BaseFactory[PaymentGateway]):

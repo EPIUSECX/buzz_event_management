@@ -15,7 +15,7 @@ from buzz.emails import is_full_document
 from buzz.events.doctype.buzz_form.form_types import ATTENDEE_FORM_DOCTYPE
 from buzz.events.doctype.buzz_team_settings.buzz_team_settings import get_event_team_settings
 from buzz.events.online_meeting import OnlineMeeting
-from buzz.payments import get_controller, mark_payment_as_received
+from buzz.payments import get_controller, mark_payment_as_received, settles_through_checkout
 from buzz.permissions import has_section_permission
 from buzz.ticketing.doctype.buzz_coupon_code.buzz_coupon_code import BuzzCouponCode
 from buzz.ticketing.doctype.event_booking_refund.event_booking_refund import (
@@ -33,6 +33,8 @@ from buzz.ticketing.doctype.ticket_hold.ticket_hold import (
 from buzz.utils import build_event_datetimes, render_email_template
 
 RAZORPAY = "Razorpay"
+# How bma_integrations closes a checkout refund, in the terms Event Booking Refund records.
+CHECKOUT_REFUND_STATUSES = {"Completed": "processed", "Failed": "failed"}
 
 
 class EventBooking(Document):
@@ -549,29 +551,43 @@ class EventBooking(Document):
 		frappe.only_for("System Manager")
 
 		payment = self.get_received_payment()
-		if payment.payment_gateway != RAZORPAY:
-			frappe.throw(_("Refunds are only supported for Razorpay at the moment"))
+		through_checkout = settles_through_checkout(payment.payment_gateway)
+		if payment.payment_gateway != RAZORPAY and not through_checkout:
+			frappe.throw(_("Refunds are not supported for {0}").format(payment.payment_gateway))
 
 		tickets = frappe.parse_json(tickets) if isinstance(tickets, str) else tickets
 		self.validate_refund(flt(amount), tickets)
 
-		refund = get_controller(payment.payment_gateway).refund_payment(payment.payment_id, flt(amount))
+		if through_checkout:
+			from bma_integrations.payments.references import refund_document
+
+			sent = refund_document(payment.payment_gateway, self.doctype, self.name, flt(amount))
+			refund_id, refunded = sent["refund"], flt(sent["amount"])
+		else:
+			sent = get_controller(payment.payment_gateway).refund_payment(payment.payment_id, flt(amount))
+			refund_id, refunded = sent.get("id"), flt(sent.get("amount")) / 100
 
 		# The picked tickets are only recorded here. They are cancelled once the
 		# gateway settles the refund, since a refund can still fail. A custom
 		# amount maps to no ticket, so it cancels nothing.
-		frappe.get_doc(
+		refund = frappe.get_doc(
 			{
 				"doctype": "Event Booking Refund",
 				"booking": self.name,
 				"payment": payment.name,
-				"refund_id": refund.get("id"),
+				"refund_id": refund_id,
 				"status": "Initiated",
-				"amount": flt(refund.get("amount")) / 100,
+				"amount": refunded,
 				"currency": self.currency,
 				"tickets": [{"ticket": ticket} for ticket in tickets or []],
 			}
 		).insert()
+
+		# Some gateways settle the refund before the call returns.
+		if through_checkout and sent["status"] in CHECKOUT_REFUND_STATUSES:
+			refund.apply_gateway_status(
+				gateway_status=CHECKOUT_REFUND_STATUSES[sent["status"]], amount=refunded
+			)
 
 		self.set_refund_status()
 
@@ -583,8 +599,14 @@ class EventBooking(Document):
 		frappe.only_for("System Manager")
 
 		payment = self.get_received_payment()
+		if settles_through_checkout(payment.payment_gateway):
+			frappe.throw(
+				_("{0} reports each refund as it settles, so there is nothing to sync").format(
+					payment.payment_gateway
+				)
+			)
 		if payment.payment_gateway != RAZORPAY:
-			frappe.throw(_("Refunds are only supported for Razorpay at the moment"))
+			frappe.throw(_("Refunds are not supported for {0}").format(payment.payment_gateway))
 
 		# Razorpay lists the newest refund first, and each one recorded moves what
 		# is left to refund, so they are applied in the order they were raised.
@@ -594,6 +616,18 @@ class EventBooking(Document):
 			"refunds": len(refunds),
 			"created": sum(self.record_refund(payment, refund) for refund in refunds),
 		}
+
+	def on_payment_refund(self, refund: str, status: str, amount: float) -> None:
+		"""bma_integrations settled a refund after `refund` returned (see `payments.references`)."""
+		if status not in CHECKOUT_REFUND_STATUSES:
+			return
+		record_gateway_refund(
+			booking=self.name,
+			payment=self.get_received_payment().name,
+			refund_id=refund,
+			status=CHECKOUT_REFUND_STATUSES[status],
+			amount=amount,
+		)
 
 	def record_refund(self, payment, gateway_refund: dict) -> bool:
 		"""Record one gateway refund against this booking. True when it was new."""

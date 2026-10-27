@@ -45,13 +45,13 @@ class TestRefundSummary(BookingRefundTestCase):
 
 
 class TestBookingRefund(BookingRefundTestCase):
-	def test_refund_is_refused_when_the_gateway_is_not_razorpay(self):
+	def test_refund_is_refused_for_a_gateway_that_takes_no_refunds(self):
 		self.make_payment(gateway=PaymentGatewayFactory.create().name)
 
 		with self.assertRaises(frappe.ValidationError) as raised:
 			self.booking.refund(amount=100)
 
-		self.assertIn("Razorpay", str(raised.exception))
+		self.assertIn("not supported", str(raised.exception))
 
 	def test_refund_is_refused_without_a_received_payment(self):
 		self.assertRaises(frappe.ValidationError, self.booking.refund, amount=100)

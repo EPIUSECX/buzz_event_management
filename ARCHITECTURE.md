@@ -7,14 +7,17 @@
 
 ## Backend Structure
 - App bootstrap and hooks: `buzz/hooks.py`
-  - Requires `frappe/payments`.
+  - Requires `EPIUSECX/bma_integrations`, whose Payments module holds the payment gateways.
   - Scheduler: `buzz.tasks.unpublish_ticket_types_after_last_date` (daily).
   - Doc events: assigns `Buzz User` role on user creation; syncs Speaker Profile display name on User update.
   - App icon entry in Desk apps screen.
 - Core API: `buzz/api.py`
   - Booking, tickets, add-ons, sponsorship, check-in, languages, translations.
 - Payments integration: `buzz/payments.py`
-  - Creates `Event Payment` records and generates payment links via the Payments app.
+  - Creates `Event Payment` records and generates payment links via bma_integrations.
+  - PayFast, Peach, Paystack, Bob Pay and Stitch settle a booking through the checkout bma_integrations logs
+    (`bma_integrations.payments.references`): it calls `on_payment_authorized` on the booking, and
+    `on_payment_refund` when a refund settles after the call that raised it.
 - Utilities: `buzz/utils.py`
   - App-install guard decorator, custom field helpers, role assignment.
 - Install/fixtures:
@@ -151,7 +154,7 @@
 - `useLanguage` changes user language and reloads translations.
 
 ## Integrations
-- Payments app required (gateway link generation + payment receipt recording).
+- bma_integrations required (gateway link generation, payment receipt recording and refunds).
 - Zoom integration optional; `Buzz Event` can create/update webinars and register attendees.
 
 ## Permissions + Roles
