@@ -49,6 +49,19 @@ if TYPE_CHECKING:
 OFFLINE_PAYMENT_METHOD = "Offline"
 
 
+def without_trunk_zero(phone: str | None) -> str | None:
+	"""+27-0735997905 becomes +27-735997905, which is how the number is dialled from abroad.
+
+	A draft saved before the phone field dropped that zero can still carry it. Italy keeps its zero.
+	"""
+	if not phone:
+		return phone
+	code, separator, number = phone.strip().partition("-")
+	if not separator or code == "+39":
+		return phone
+	return f"{code}-{number.lstrip('0')}"
+
+
 class BookingService:
 	"""Create an Event Booking from a validated request and hand back the next step."""
 
@@ -197,7 +210,7 @@ class BookingService:
 			request.buyer_email or request.guest_email or frappe.db.get_value("User", booking.user, "email")
 		)
 		booking.buyer_name = request.buyer_name or request.guest_full_name or get_fullname(booking.user)
-		booking.buyer_phone = request.buyer_phone or request.guest_phone
+		booking.buyer_phone = without_trunk_zero(request.buyer_phone or request.guest_phone)
 		if booking.buyer_email:
 			validate_email_address(booking.buyer_email, throw=True)
 		if booking.buyer_phone:
