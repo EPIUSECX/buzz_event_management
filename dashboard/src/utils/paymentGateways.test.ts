@@ -27,8 +27,8 @@ test("matches each South African gateway by the provider bma_integrations names 
 	}
 	for (const [gateway, file] of Object.entries(expected)) {
 		assert.deepEqual(paymentGatewayLogo(gateway), {
-			light: `/assets/buzz/images/payment_gateways/${file}.svg`,
-			dark: `/assets/buzz/images/payment_gateways/${file}-dark.svg`,
+			light: `/assets/buzz/images/payment_gateways/${file}.png`,
+			dark: `/assets/buzz/images/payment_gateways/${file}-dark.png`,
 		})
 	}
 })

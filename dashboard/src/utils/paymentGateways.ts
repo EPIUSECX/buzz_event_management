@@ -6,21 +6,21 @@ interface PaymentGatewayLogoFiles {
 	dark: string
 }
 
-const logoFiles = (name: string): PaymentGatewayLogoFiles => ({
-	light: `${LOGO_DIRECTORY}/${name}.svg`,
-	dark: `${LOGO_DIRECTORY}/${name}-dark.svg`,
+const logoFiles = (name: string, extension = "svg"): PaymentGatewayLogoFiles => ({
+	light: `${LOGO_DIRECTORY}/${name}.${extension}`,
+	dark: `${LOGO_DIRECTORY}/${name}-dark.${extension}`,
 })
 
 // Keyed by the provider part of the gateway's name. The South African gateways come from
 // bma_integrations, which names them "Payfast-<account>", "Peach-<account>" and so on. Their
-// files are typeset wordmarks for now: swap in each brand's official mark under the same name.
+// marks are rasters; the dark files of Bob Pay and PayFast sit on a white tile, as their ink is dark.
 const LOGOS: Record<string, PaymentGatewayLogoFiles> = {
 	Razorpay: logoFiles("razorpay"),
-	Payfast: logoFiles("payfast"),
-	Peach: logoFiles("peach"),
-	Paystack: logoFiles("paystack"),
-	"Bob Pay": logoFiles("bob-pay"),
-	Stitch: logoFiles("stitch"),
+	Payfast: logoFiles("payfast", "png"),
+	Peach: logoFiles("peach", "png"),
+	Paystack: logoFiles("paystack", "png"),
+	"Bob Pay": logoFiles("bob-pay", "png"),
+	Stitch: logoFiles("stitch", "png"),
 }
 
 // Gateways with per-account settings are named "<Provider>-<account>", e.g. "Stripe-Main".
