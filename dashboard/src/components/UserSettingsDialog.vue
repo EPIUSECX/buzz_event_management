@@ -21,6 +21,7 @@ import { computed, reactive, ref, watch } from "vue"
 
 import AvatarUploader from "@/components/common/AvatarUploader.vue"
 import TeamsPanel from "@/components/dashboard/teams/TeamsPanel.vue"
+import BrandingPanel from "@/components/settings/BrandingPanel.vue"
 import PasswordSection from "@/components/settings/PasswordSection.vue"
 import PreferencesPanel from "@/components/settings/PreferencesPanel.vue"
 import { session } from "@/data/session"
@@ -183,6 +184,15 @@ async function save(fields: Partial<Profile> = { ...form }) {
 					{{ __("Teams") }}
 				</SettingsNavItem>
 			</SettingsNavGroup>
+
+			<SettingsNavGroup v-if="userResource.data?.can_manage_branding" :label="__('Site')">
+				<SettingsNavItem value="branding">
+					<template #prefix>
+						<span class="lucide-palette size-4" />
+					</template>
+					{{ __("Branding") }}
+				</SettingsNavItem>
+			</SettingsNavGroup>
 		</SettingsSidebar>
 
 		<SettingsContent class="user-settings" :class="{ 'max-sm:hidden': !tab }">
@@ -238,6 +248,10 @@ async function save(fields: Partial<Profile> = { ...form }) {
 
 			<SettingsPanel value="teams">
 				<TeamsPanel />
+			</SettingsPanel>
+
+			<SettingsPanel v-if="userResource.data?.can_manage_branding" value="branding">
+				<BrandingPanel :open="open" />
 			</SettingsPanel>
 		</SettingsContent>
 	</SettingsDialog>

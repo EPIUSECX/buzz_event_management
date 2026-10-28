@@ -19,9 +19,22 @@ const linkPreviewTags = {
 	transformIndexHtml: (html: string) => html.replace("<title>Buzz Dashboard</title>", LINK_PREVIEW),
 }
 
+// The favicon is a setting, so the built page asks the server for it. Runs last, after Vite
+// has rewritten the href to the build's base.
+const favicon = {
+	name: "buzz-favicon",
+	apply: "build" as const,
+	transformIndexHtml: {
+		order: "post" as const,
+		handler: (html: string) =>
+			html.replace(/<link rel="icon" href="[^"]*" \/>/, '<link rel="icon" href="{{ favicon }}" />'),
+	},
+}
+
 export default defineConfig({
 	plugins: [
 		linkPreviewTags,
+		favicon,
 		frappeui({
 			frappeProxy: {
 				port: 8080,

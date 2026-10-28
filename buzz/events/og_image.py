@@ -20,6 +20,8 @@ WIDTH, HEIGHT, BANNER_HEIGHT = 1200, 630, 400
 PADDING, COLUMN_GAP = 64, 48
 WORDMARK = frappe.get_app_path("buzz", "public", "images", "buzz-wordmark-dark.png")
 WORDMARK_SIZE = (54, 42)
+# A configured logo is scaled to fit this, whatever its shape
+LOGO_BOX = (160, 48)
 COLOURS = {
 	"light": {
 		"page-bg": "#ffffff",
@@ -112,9 +114,9 @@ class EventOgImage:
 	def __init__(self, event, doc=None):
 		self.event = event
 		self.doc = doc or event
-		self.colours = theme_colours(
-			resolve_theme(event.theme, frappe.db.get_single_value("Buzz Settings", "event_page_theme"))
-		)
+		theme = resolve_theme(event.theme, frappe.db.get_single_value("Buzz Settings", "event_page_theme"))
+		self.colours = theme_colours(theme)
+		self.logo_url = brand_logo(color_scheme(theme))
 		with site_language():
 			self.title = self.build_title()
 			self.meta_line = self.build_meta_line()
@@ -148,6 +150,8 @@ class EventOgImage:
 			self.event.banner_image,
 			self.colours,
 			site_host(),
+			# Only when set, so a site on the Buzz wordmark keeps the images it has
+			*([self.logo_url] if self.logo_url else []),
 		]
 		return hashlib.sha1(repr(parts).encode()).hexdigest()[:12]
 
@@ -186,14 +190,7 @@ class EventOgImage:
 		return ImageOps.fit(flat, (WIDTH, BANNER_HEIGHT), Image.LANCZOS)
 
 	def uploaded_banner(self) -> Image.Image | None:
-		url = self.event.banner_image
-		if not url or urlparse(url).scheme:
-			return None
-		try:
-			content = frappe.get_doc("File", {"file_url": url}).get_content()
-			return Image.open(io.BytesIO(content))
-		except Exception:
-			return None
+		return public_image(self.event.banner_image)
 
 	def draw_text(self, image: Image.Image, max_width: int):
 		top = BANNER_HEIGHT + (HEIGHT - BANNER_HEIGHT - (60 + 10 + 34)) // 2
@@ -204,18 +201,30 @@ class EventOgImage:
 
 	def draw_brand(self, image: Image.Image, draw: ImageDraw.ImageDraw) -> int:
 		host_font, host = font("Medium", 20), site_host()
-		top = BANNER_HEIGHT + (HEIGHT - BANNER_HEIGHT - (WORDMARK_SIZE[1] + 10 + 24)) // 2
+		mark = self.brand_mark()
+		top = BANNER_HEIGHT + (HEIGHT - BANNER_HEIGHT - (mark.height + 10 + 24)) // 2
 		right = WIDTH - PADDING
-		wordmark = recoloured_wordmark(self.colours["ink-title"])
-		image.paste(wordmark, (right - WORDMARK_SIZE[0], top), wordmark)
+		image.paste(mark, (right - mark.width, top), mark)
 		draw.text(
-			(right, top + WORDMARK_SIZE[1] + 10 + 12),
+			(right, top + mark.height + 10 + 12),
 			host,
 			font=host_font,
 			fill=self.colours["ink-muted"],
 			anchor="rm",
 		)
-		return max(WORDMARK_SIZE[0], math.ceil(host_font.getlength(host)))
+		return max(mark.width, math.ceil(host_font.getlength(host)))
+
+	def brand_mark(self) -> Image.Image:
+		return self.configured_logo() or recoloured_wordmark(self.colours["ink-title"])
+
+	def configured_logo(self) -> Image.Image | None:
+		# An SVG logo cannot be drawn here, so it leaves the wordmark in place
+		logo = public_image(self.logo_url)
+		if not logo:
+			return None
+		logo = logo.convert("RGBA")
+		logo.thumbnail(LOGO_BOX, Image.LANCZOS)
+		return logo
 
 	def save(self):
 		previous = attached_files(self.doc)
@@ -256,8 +265,28 @@ def delete_files(names: list[str]):
 		frappe.delete_doc("File", name, ignore_permissions=True)
 
 
+def public_image(url: str | None) -> Image.Image | None:
+	"""An image uploaded to this site, or None when it is not one PIL can read."""
+	if not url or urlparse(url).scheme:
+		return None
+	try:
+		content = frappe.get_doc("File", {"file_url": url}).get_content()
+		return Image.open(io.BytesIO(content))
+	except Exception:
+		return None
+
+
+def brand_logo(scheme: str) -> str | None:
+	settings = frappe.get_cached_doc("Buzz Settings")
+	return (settings.app_logo_dark if scheme == "dark" else settings.app_logo) or None
+
+
+def color_scheme(theme: str | None) -> str:
+	return frappe.db.get_value("Buzz Theme", theme, "color_scheme") if theme else "light"
+
+
 def theme_colours(theme: str | None) -> dict:
-	scheme = frappe.db.get_value("Buzz Theme", theme, "color_scheme") if theme else "light"
+	scheme = color_scheme(theme)
 	colours = dict(COLOURS.get(scheme, COLOURS["light"]))
 	rows = frappe.get_all(
 		"Buzz Theme Token",

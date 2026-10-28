@@ -146,7 +146,7 @@ after_app_install = "buzz.install.after_app_install"
 add_to_apps_screen = [
 	{
 		"name": "buzz",
-		"logo": "/assets/buzz/images/buzz-logo-rounded.png",
+		"logo": "/api/method/buzz.api.branding.app_tile_logo",
 		"title": "Buzz",
 		"route": "/b",
 		"has_permission": "buzz.api.account.has_app_permission",

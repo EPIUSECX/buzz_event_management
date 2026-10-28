@@ -12,6 +12,7 @@ from buzz.events.doctype.buzz_team.buzz_team import personal_teams_enabled
 from buzz.playground import playground_boot
 from buzz.utils import is_app_installed
 from buzz.www.event.venue_map import google_maps_embed_api_key
+from buzz.www.site_header import SiteHeader
 
 no_cache = 1
 
@@ -21,6 +22,7 @@ def get_context():
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	context = frappe._dict()
 	context.boot = get_boot()
+	context.favicon = SiteHeader().favicon()
 	context.boot.csrf_token = csrf_token
 	context.link_preview = form_link_preview(frappe.request.path if frappe.request else "")
 	if frappe.session.user != "Guest":

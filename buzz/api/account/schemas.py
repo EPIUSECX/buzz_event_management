@@ -23,6 +23,7 @@ class Brand(APIResponse):
 	# Square mark for the collapsed dashboard sidebar.
 	icon: str | None
 	name: str
+	favicon: str
 	# No whitelabel logo is set, so clients draw the Buzz wordmark.
 	is_default: bool
 
@@ -48,6 +49,8 @@ class UserInfoResponse(APIResponse):
 	# Rows of the User.roles child table, serialized as full documents.
 	roles: list
 	brand: Brand
+	# Opens the Branding page of the settings dialog.
+	can_manage_branding: bool
 	navbar: Navbar
 	language: str | None
 	time_zone: str | None

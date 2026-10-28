@@ -28,6 +28,10 @@
   "app_logo_dark",
   "app_icon_section",
   "app_icon",
+  "identity_section",
+  "brand_name",
+  "column_break_identity",
+  "favicon",
   "payments_tab",
   "default_payment_gateway",
   "proposals_tab",
@@ -444,6 +448,27 @@
    "fieldtype": "Attach Image",
    "label": "App Icon",
    "description": "A square mark shown when the dashboard sidebar is collapsed"
+  },
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Name and Favicon"
+  },
+  {
+   "fieldname": "brand_name",
+   "fieldtype": "Data",
+   "label": "Brand Name",
+   "description": "Shown beside the logo. Empty uses the App Name in Website Settings."
+  },
+  {
+   "fieldname": "column_break_identity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "favicon",
+   "fieldtype": "Attach Image",
+   "label": "Favicon",
+   "description": "The browser tab icon of the dashboard and public pages. Empty uses the Website Settings favicon."
   }
  ],
  "grid_page_length": 50,

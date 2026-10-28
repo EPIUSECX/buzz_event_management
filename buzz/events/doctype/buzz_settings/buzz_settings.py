@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 
 LISTING_FIELDS = ("list_on_buzz_events", "buzz_events_url", "buzz_events_api_key", "buzz_events_api_secret")
+# Drawn into the share images
+LOGO_FIELDS = ("app_logo", "app_logo_dark")
 
 
 class BuzzSettings(Document):
@@ -28,6 +30,7 @@ class BuzzSettings(Document):
 		auto_send_pitch_deck: DF.Check
 		buzz_events_api_key: DF.Data | None
 		buzz_events_api_secret: DF.Password | None
+		brand_name: DF.Data | None
 		buzz_events_url: DF.Data | None
 		default_payment_gateway: DF.Link | None
 		default_sponsor_deck_cc: DF.SmallText | None
@@ -39,6 +42,7 @@ class BuzzSettings(Document):
 		event_proposal_banner_title: DF.Data | None
 		event_proposal_success_message: DF.MarkdownEditor | None
 		event_proposal_success_title: DF.Data | None
+		favicon: DF.AttachImage | None
 		google_maps_embed_api_key: DF.Data | None
 		google_maps_enabled: DF.Check
 		google_places_api_key: DF.Password | None
@@ -55,11 +59,19 @@ class BuzzSettings(Document):
 		self.validate_buzz_events_url()
 
 	def on_update(self):
+		if any(self.has_value_changed(field) for field in LOGO_FIELDS):
+			self.refresh_share_images()
 		listing_changed = any(self.has_value_changed(field) for field in LISTING_FIELDS)
 		if self.list_on_buzz_events and listing_changed:
 			frappe.enqueue(
 				"buzz.events.buzz_events_listing.sync_all_events", queue="long", enqueue_after_commit=True
 			)
+
+	def refresh_share_images(self):
+		# Imported here: the image code imports the event pages, which import this doctype
+		from buzz.events.og_image import enqueue_all_published
+
+		enqueue_all_published()
 
 	def validate_buzz_events_url(self):
 		# The API secret travels in a header, so it must not go over plain HTTP.

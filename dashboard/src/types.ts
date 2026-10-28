@@ -117,7 +117,18 @@ export interface Brand {
 	logo_dark: string | null
 	icon: string | null
 	name: string
+	favicon: string
 	is_default: boolean
+}
+
+// buzz.api.branding.get_branding: what is set. An empty value falls back to the Buzz default.
+export interface BrandingSettings {
+	brand_name: string | null
+	app_logo: string | null
+	app_logo_dark: string | null
+	app_icon: string | null
+	favicon: string | null
+	default_name: string
 }
 
 // buzz.api.account.get_user_info: every field but is_logged_in, brand and navbar
@@ -135,6 +146,7 @@ export interface UserInfo {
 	user_image?: string | null
 	bio?: string | null
 	roles?: { role: string }[]
+	can_manage_branding?: boolean
 	language?: string | null
 	time_zone?: string | null
 }

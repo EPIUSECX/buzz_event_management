@@ -36,6 +36,10 @@ def buzz_navbar() -> dict:
 	return {**header.as_context(), "navbar": navbar, "languages": languages, "language": frappe.local.lang}
 
 
+def default_brand_name() -> str:
+	return frappe.get_cached_doc("Website Settings").app_name or "Buzz"
+
+
 class SiteHeader:
 	def __init__(self):
 		self.is_guest = frappe.session.user == "Guest"
@@ -44,7 +48,7 @@ class SiteHeader:
 	def as_context(self) -> dict:
 		return {
 			"brand": self.brand(),
-			"favicon": self.settings.favicon or DEFAULT_FAVICON,
+			"favicon": self.favicon(),
 			"is_guest": self.is_guest,
 			**self.user_info(),
 		}
@@ -60,9 +64,13 @@ class SiteHeader:
 			"logo": buzz_settings.app_logo or DEFAULT_LOGO,
 			"logo_dark": buzz_settings.app_logo_dark,
 			"icon": buzz_settings.app_icon,
-			"name": self.settings.app_name or "Buzz",
+			"name": buzz_settings.brand_name or default_brand_name(),
+			"favicon": self.favicon(),
 			"is_default": not buzz_settings.app_logo,
 		}
+
+	def favicon(self) -> str:
+		return frappe.get_cached_doc("Buzz Settings").favicon or self.settings.favicon or DEFAULT_FAVICON
 
 	def navbar(self) -> dict:
 		items = modify_header_footer_items(self.settings.top_bar_items)

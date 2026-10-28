@@ -81,6 +81,7 @@ class TestGetUserInfo(LanguageTestCase):
 				"bio",
 				"roles",
 				"brand",
+				"can_manage_branding",
 				"navbar",
 				"language",
 				"time_zone",
