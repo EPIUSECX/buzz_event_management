@@ -124,6 +124,7 @@
 							:booking-custom-fields="bookingCustomFields"
 							:show-invoice="tax.apply"
 							:tax-label="tax.label"
+							:currency="currency"
 							:errors="detailsErrors"
 							:show-errors="tried"
 							:large="isMobile"

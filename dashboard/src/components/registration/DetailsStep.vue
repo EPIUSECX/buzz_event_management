@@ -64,13 +64,21 @@
 						autocomplete="street-address"
 					/>
 					<Combobox
+						v-if="region.options"
 						:model-value="billing.billing_state || null"
-						:label="__('State')"
+						:label="regionLabel"
 						:size="inputSize"
-						:placeholder="__('Search state')"
-						:options="INDIAN_STATES"
+						:placeholder="__('Search')"
+						:options="region.options"
 						open-on-click
 						@update:model-value="billing.billing_state = String($event ?? '')"
+					/>
+					<FormControl
+						v-else
+						v-model="billing.billing_state"
+						:label="regionLabel"
+						:size="inputSize"
+						autocomplete="address-level1"
 					/>
 				</div>
 			</Collapse>
@@ -87,10 +95,10 @@ import type { FrappeField } from "@/composables/useCustomFields"
 
 import CustomFieldsSection from "../CustomFieldsSection.vue"
 import type { AttendeeErrors } from "./attendeeValidation"
+import { stateChoice } from "./billingStates"
 import Collapse from "./Collapse.vue"
 import CoreFieldInputs from "./CoreFieldInputs.vue"
 import type { CoreField } from "./coreFields"
-import { INDIAN_STATES } from "./indianStates"
 import RegistrationPanel from "./RegistrationPanel.vue"
 import { isGstLabel, taxIdFieldLabel } from "./registrationSteps"
 
@@ -102,6 +110,7 @@ const props = defineProps<{
 	bookingCustomFields: FrappeField[]
 	showInvoice: boolean
 	taxLabel: string
+	currency: string
 	errors: AttendeeErrors
 	showErrors: boolean
 	large: boolean
@@ -112,6 +121,13 @@ const bookingCustomFieldsData = defineModel<Record<string, any>>("bookingCustomF
 })
 
 const isGst = computed(() => isGstLabel(props.taxLabel))
+const region = computed(() => stateChoice(props.taxLabel, props.currency))
+const regionLabel = computed(
+	() =>
+		({ province: __("Province"), state: __("State"), region: __("State / province") })[
+			region.value.kind
+		],
+)
 const taxIdLabel = computed(() => taxIdFieldLabel(props.taxLabel))
 const inputSize = computed(() => (props.large ? "lg" : "sm"))
 const requiredBuyer = computed(() =>
