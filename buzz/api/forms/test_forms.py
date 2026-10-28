@@ -1,7 +1,7 @@
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from buzz.api.forms import get_dial_codes
+from buzz.api.forms import get_default_dial_code, get_dial_codes
 from buzz.api.forms.fields import (
 	STANDARD_EXCLUDE_FIELDS,
 	get_form_fields,
@@ -88,3 +88,13 @@ class TestDialCodes(IntegrationTestCase):
 		dial_codes = [entry["dial_code"] for entry in codes]
 		self.assertEqual(len(dial_codes), len(set(dial_codes)), "dial codes must be de-duplicated")
 		self.assertIn("+91", dial_codes)
+
+	def test_the_default_is_the_dial_code_of_the_sites_country(self):
+		for country, expected in (("South Africa", "+27"), ("India", "+91")):
+			with self.subTest(country=country):
+				frappe.db.set_single_value("System Settings", "country", country)
+				self.assertEqual(get_default_dial_code(), expected)
+
+	def test_no_country_means_no_default(self):
+		frappe.db.set_single_value("System Settings", "country", None)
+		self.assertIsNone(get_default_dial_code())

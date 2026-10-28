@@ -5,6 +5,7 @@ from buzz.api.forms.schemas import CustomFormResponse, EventProposalFormResponse
 from buzz.api.forms.services import (
 	CustomFormService,
 	create_event_proposal,
+	default_dial_code,
 	get_dial_code_list,
 	get_event_proposal_form,
 )
@@ -13,6 +14,11 @@ from buzz.api.forms.services import (
 @frappe.whitelist(allow_guest=True)  # nosemgrep: guest-whitelisted-method
 def get_dial_codes() -> list:
 	return get_dial_code_list()
+
+
+@frappe.whitelist(allow_guest=True)  # nosemgrep: guest-whitelisted-method
+def get_default_dial_code() -> str | None:
+	return default_dial_code()
 
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: guest-whitelisted-method

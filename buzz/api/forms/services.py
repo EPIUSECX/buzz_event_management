@@ -281,6 +281,12 @@ def create_event_proposal(data: dict | str) -> None:
 	frappe.get_doc(doc_data).insert(ignore_permissions=True)
 
 
+def default_dial_code() -> str | None:
+	"""The dial code of the site's own country, so a local buyer need not change it."""
+	country = frappe.db.get_single_value("System Settings", "country")
+	return get_all_countries().get(country, {}).get("isd") or None
+
+
 @lru_cache(maxsize=1)
 def get_dial_code_list() -> list[dict]:
 	countries = get_all_countries()

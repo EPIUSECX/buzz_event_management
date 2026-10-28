@@ -42,9 +42,14 @@ export function parsePhone(value: unknown, knownDialCodes: string[] = []): Parse
 	return { dialCode, localNumber: rest.replace(/\D/g, "") }
 }
 
+// People type a number the way they dial it at home, with the trunk "0" that international
+// format drops: +27-0735997905 is not a valid number, +27-735997905 is. Italy keeps its zero.
+const KEEPS_TRUNK_ZERO = new Set(["+39"])
+
 // Joins a dial code and local number into Frappe's canonical hyphen format.
 export function formatPhone(dialCode: string | null, localNumber: unknown): string {
-	const digits = String(localNumber ?? "").replace(/\D/g, "")
+	let digits = String(localNumber ?? "").replace(/\D/g, "")
+	if (dialCode && !KEEPS_TRUNK_ZERO.has(dialCode)) digits = digits.replace(/^0+/, "")
 	if (!digits) return ""
 	return `${dialCode}-${digits}`
 }

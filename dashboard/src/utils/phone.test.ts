@@ -17,6 +17,15 @@ test("formatPhone strips non-digits from the number", () => {
 	assert.equal(formatPhone("+91", "(900) 009-0000"), "+91-9000090000")
 })
 
+test("formatPhone drops the trunk zero people type at home", () => {
+	assert.equal(formatPhone("+27", "0735997905"), "+27-735997905")
+	assert.equal(formatPhone("+44", "07911 123456"), "+44-7911123456")
+})
+
+test("formatPhone keeps the zero where the country does", () => {
+	assert.equal(formatPhone("+39", "0612345678"), "+39-0612345678")
+})
+
 test("formatPhone returns empty string with no digits", () => {
 	assert.equal(formatPhone("+1", ""), "")
 })

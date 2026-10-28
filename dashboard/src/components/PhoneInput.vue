@@ -57,6 +57,8 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue"])
 
 const dialCode = ref(DEFAULT_DIAL_CODE)
+// Once a value or a pick has set the code, the site's default no longer replaces it.
+let codeIsSettled = false
 const localNumber = ref("")
 const dialCodesData = ref<DialCode[]>([])
 // The number is padded past the dial code picker, whose width follows the code.
@@ -85,7 +87,10 @@ function syncFromModel(value: string) {
 		value,
 		knownDialCodes.value,
 	)
-	if (parsedCode) dialCode.value = parsedCode
+	if (parsedCode) {
+		dialCode.value = parsedCode
+		codeIsSettled = true
+	}
 	localNumber.value = parsedNumber
 }
 
@@ -102,6 +107,7 @@ function emitValue() {
 
 function onDialCodeChange(code: unknown) {
 	if (code) {
+		codeIsSettled = true
 		dialCode.value = String(code)
 		emitValue()
 	}
@@ -112,6 +118,14 @@ function onNumberInput(num: string) {
 	localNumber.value = digitsOnly
 	emitValue()
 }
+
+// A local buyer should not have to change the code: it starts as the site's own country's.
+useCall<string | null>({
+	url: "/api/v2/method/buzz.api.forms.get_default_dial_code",
+	onSuccess: (code) => {
+		if (code && !codeIsSettled) dialCode.value = code
+	},
+})
 
 useCall<DialCode[]>({
 	url: "/api/v2/method/buzz.api.forms.get_dial_codes",
