@@ -1,4 +1,6 @@
 import io
+from typing import ClassVar
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -7,6 +9,7 @@ from PIL import Image
 from buzz.api.branding import app_tile_logo, get_branding, update_branding
 from buzz.api.branding.exceptions import CannotEditBranding
 from buzz.api.branding.services import TILE_FALLBACK
+from buzz.emails import email_brand
 from buzz.events.og_image import LOGO_BOX, WORDMARK_SIZE, EventOgImage, brand_logo
 from buzz.www.site_header import DEFAULT_FAVICON, SiteHeader
 
@@ -22,6 +25,8 @@ BLANK = {
 
 class BrandingTestCase(IntegrationTestCase):
 	def setUp(self):
+		# The site may install an app that sets a default brand, which these tests set for themselves
+		self.enterContext(patch("buzz.brand.hooked", return_value=frappe._dict()))
 		# Keeps the site's own branding out of every assertion; the rollback restores it
 		for field, empty in BLANK.items():
 			frappe.db.set_single_value("Buzz Settings", field, empty)
@@ -162,3 +167,89 @@ class TestShareImageLogo(BrandingTestCase):
 	def logo_of_blank_site(self):
 		self.update()
 		return brand_logo("light")
+
+
+class TestAppDefaults(BrandingTestCase):
+	DEFAULTS: ClassVar[dict[str, str]] = {
+		"name": "Acme",
+		"logo": "/assets/acme/light.png",
+		"logo_dark": "/assets/acme/dark.png",
+		"icon": "/assets/acme/mark.png",
+		"favicon": "/assets/acme/fav.png",
+	}
+
+	def setUp(self):
+		super().setUp()
+		self.enterContext(patch("buzz.brand.hooked", return_value=frappe._dict(self.DEFAULTS)))
+		for field in ("favicon", "banner_image", "app_logo"):
+			frappe.db.set_single_value("Website Settings", field, None)
+		frappe.clear_document_cache("Website Settings", "Website Settings")
+
+	def test_an_empty_brand_falls_back_to_the_apps_defaults(self):
+		brand = SiteHeader().brand()
+		self.assertEqual(
+			(brand["logo"], brand["logo_dark"], brand["icon"], brand["favicon"], brand["name"]),
+			(
+				"/assets/acme/light.png",
+				"/assets/acme/dark.png",
+				"/assets/acme/mark.png",
+				"/assets/acme/fav.png",
+				"Acme",
+			),
+		)
+		self.assertEqual((brand["is_default"], brand["is_named"], brand["show_name"]), (False, True, False))
+
+	def test_buzz_settings_beat_the_defaults_and_the_logos_stay_a_pair(self):
+		self.update(
+			brand_name="Mine", app_logo="/files/a.png", app_logo_dark="/files/b.png", favicon="/files/f.png"
+		)
+		brand = SiteHeader().brand()
+		self.assertEqual(
+			(brand["logo"], brand["logo_dark"], brand["favicon"]),
+			("/files/a.png", "/files/b.png", "/files/f.png"),
+		)
+		self.assertEqual((brand["name"], brand["icon"]), ("Mine", "/assets/acme/mark.png"))
+
+	def test_the_branding_page_is_told_what_the_defaults_are(self):
+		branding = get_branding()
+		self.assertEqual(branding.default_name, "Acme")
+		self.assertEqual(
+			(
+				branding.default_logo,
+				branding.default_logo_dark,
+				branding.default_icon,
+				branding.default_favicon,
+			),
+			(
+				"/assets/acme/light.png",
+				"/assets/acme/dark.png",
+				"/assets/acme/mark.png",
+				"/assets/acme/fav.png",
+			),
+		)
+		self.assertIsNone(branding.brand_name)
+
+	def test_the_apps_tile_and_share_image_and_emails_follow_the_defaults(self):
+		app_tile_logo()
+		self.assertEqual(frappe.local.response["location"], "/assets/acme/mark.png")
+		self.assertEqual(
+			(brand_logo("light"), brand_logo("dark")), ("/assets/acme/light.png", "/assets/acme/dark.png")
+		)
+		mail = email_brand()
+		self.assertTrue(mail.logo.endswith("/assets/acme/light.png"))
+		self.assertEqual(mail.name, "Acme")
+
+	def test_a_logo_shipped_in_an_app_can_be_drawn(self):
+		mark = self.share_image_of("/assets/buzz/images/buzz-logo.png").configured_logo()
+		self.assertIsNotNone(mark)
+		self.assertLessEqual(mark.width, LOGO_BOX[0])
+		self.assertLessEqual(mark.height, LOGO_BOX[1])
+
+	def test_a_path_that_leaves_the_apps_folder_is_not_read(self):
+		self.assertIsNone(self.share_image_of("/assets/buzz/../../../../etc/hostname").configured_logo())
+
+	def share_image_of(self, logo_url: str) -> EventOgImage:
+		image = object.__new__(EventOgImage)
+		image.colours = {"ink-title": "#111111"}
+		image.logo_url = logo_url
+		return image

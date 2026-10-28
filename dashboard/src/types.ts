@@ -134,6 +134,10 @@ export interface BrandingSettings {
 	favicon: string | null
 	show_brand_name: boolean
 	default_name: string
+	default_logo: string | null
+	default_logo_dark: string | null
+	default_icon: string | null
+	default_favicon: string | null
 }
 
 // buzz.api.account.get_user_info: every field but is_logged_in, brand and navbar

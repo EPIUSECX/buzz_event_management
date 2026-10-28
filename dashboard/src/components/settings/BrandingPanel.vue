@@ -142,12 +142,14 @@ function showFavicon(url: string | undefined) {
 					<BrandingImageField
 						v-model="draft.app_logo"
 						surface="light"
+						:fallback="settings?.default_logo"
 						:label="__('Light mode')"
 						:description="__('Shown on light pages')"
 					/>
 					<BrandingImageField
 						v-model="draft.app_logo_dark"
 						surface="dark"
+						:fallback="settings?.default_logo_dark"
 						:label="__('Dark mode')"
 						:description="__('Shown on dark pages')"
 					/>
@@ -164,12 +166,14 @@ function showFavicon(url: string | undefined) {
 					<BrandingImageField
 						v-model="draft.app_icon"
 						square
+						:fallback="settings?.default_icon"
 						:label="__('App icon')"
 						:description="__('A square mark for the collapsed sidebar and the Desk apps screen')"
 					/>
 					<BrandingImageField
 						v-model="draft.favicon"
 						square
+						:fallback="settings?.default_favicon"
 						:label="__('Favicon')"
 						:description="__('The browser tab icon')"
 					/>

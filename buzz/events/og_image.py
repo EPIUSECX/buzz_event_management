@@ -2,6 +2,7 @@ import hashlib
 import io
 import math
 from contextlib import contextmanager
+from pathlib import Path
 from urllib.parse import urlparse
 
 import frappe
@@ -9,6 +10,7 @@ from frappe import _
 from frappe.utils import format_date, getdate
 from PIL import Image, ImageColor, ImageDraw, ImageOps
 
+from buzz.brand import logo_for
 from buzz.events.banner_pattern import rings_banner
 from buzz.events.doctype.buzz_theme.buzz_theme import resolve_theme
 from buzz.events.og_text import OgText, font, is_drawable, tracking
@@ -266,19 +268,32 @@ def delete_files(names: list[str]):
 
 
 def public_image(url: str | None) -> Image.Image | None:
-	"""An image uploaded to this site, or None when it is not one PIL can read."""
+	"""An image uploaded to this site or shipped in an app, or None when PIL cannot read it."""
 	if not url or urlparse(url).scheme:
 		return None
 	try:
-		content = frappe.get_doc("File", {"file_url": url}).get_content()
+		content = asset_content(url) if url.startswith("/assets/") else uploaded_content(url)
 		return Image.open(io.BytesIO(content))
 	except Exception:
 		return None
 
 
+def uploaded_content(url: str) -> bytes:
+	return frappe.get_doc("File", {"file_url": url}).get_content()
+
+
+def asset_content(url: str) -> bytes:
+	"""A file under an app's public folder, which is what /assets/<app>/ serves."""
+	app, _, path = url.removeprefix("/assets/").partition("/")
+	public = Path(frappe.get_app_path(app, "public")).resolve()
+	file = (public / path).resolve()
+	if public not in file.parents:
+		raise ValueError(url)
+	return file.read_bytes()
+
+
 def brand_logo(scheme: str) -> str | None:
-	settings = frappe.get_cached_doc("Buzz Settings")
-	return (settings.app_logo_dark if scheme == "dark" else settings.app_logo) or None
+	return logo_for(scheme)
 
 
 def color_scheme(theme: str | None) -> str:

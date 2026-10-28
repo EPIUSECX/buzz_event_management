@@ -10,8 +10,10 @@ withDefaults(
 		description?: string
 		surface?: "light" | "dark" | "neutral"
 		square?: boolean
+		// What shows when nothing is set, from the app that supplies the default brand.
+		fallback?: string | null
 	}>(),
-	{ description: "", surface: "neutral", square: false },
+	{ description: "", surface: "neutral", square: false, fallback: null },
 )
 
 const image = defineModel<string | null>({ required: true })
@@ -40,7 +42,7 @@ const SURFACES = {
 				</div>
 
 				<div
-					class="flex h-24 items-center justify-center overflow-hidden rounded-6 border border-outline-gray-2 p-3"
+					class="relative flex h-24 items-center justify-center overflow-hidden rounded-6 border border-outline-gray-2 p-3"
 					:class="[SURFACES[surface], square ? 'w-24' : 'w-full']"
 				>
 					<Spinner v-if="uploading" class="size-5 text-ink-gray-5" />
@@ -50,6 +52,18 @@ const SURFACES = {
 						:alt="label"
 						class="max-h-full max-w-full object-contain"
 					/>
+					<template v-else-if="fallback">
+						<img
+							:src="fallback"
+							:alt="label"
+							class="max-h-full max-w-full object-contain opacity-80"
+						/>
+						<span
+							class="absolute right-1.5 top-1.5 rounded-3 bg-surface-gray-3 px-1.5 text-xs text-ink-gray-6"
+						>
+							{{ __("Default") }}
+						</span>
+					</template>
 					<span
 						v-else
 						class="text-p-sm"

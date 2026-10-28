@@ -1,6 +1,9 @@
 import type { BrandingSettings } from "@/types"
 
-export type BrandingDraft = Omit<BrandingSettings, "default_name">
+export type BrandingDraft = Omit<
+	BrandingSettings,
+	"default_name" | "default_logo" | "default_logo_dark" | "default_icon" | "default_favicon"
+>
 
 const TEXT_FIELDS = ["brand_name", "app_logo", "app_logo_dark", "app_icon", "favicon"] as const
 

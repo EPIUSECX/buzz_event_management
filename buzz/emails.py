@@ -3,6 +3,7 @@ from urllib.parse import urlencode, urlparse
 import frappe
 from frappe.utils import get_url
 
+from buzz import brand
 from buzz.events.doctype.event_venue.details import venue_details
 from buzz.events.online_meeting import OnlineMeeting
 from buzz.utils import build_event_datetimes, get_time_zone_label
@@ -27,10 +28,11 @@ def email_event_header(event) -> dict:
 
 def email_brand() -> dict:
 	settings = frappe.get_cached_doc("Website Settings")
-	site_logo = settings.banner_image or settings.app_logo
+	# Emails sit on a light ground, so the light logo
+	site_logo = settings.banner_image or settings.app_logo or brand.logos()[0]
 	return frappe._dict(
 		logo=get_url(site_logo or WORDMARK),
-		name=(settings.app_name if site_logo else None) or "Buzz",
+		name=brand.name() or (settings.app_name if site_logo else None) or "Buzz",
 	)
 
 

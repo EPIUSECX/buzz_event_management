@@ -12,3 +12,8 @@ class BrandingSettings(APIResponse):
 	show_brand_name: bool
 	# What an empty name falls back to.
 	default_name: str
+	# What an empty logo, icon or favicon falls back to, when an app installed beside Buzz sets one.
+	default_logo: str | None
+	default_logo_dark: str | None
+	default_icon: str | None
+	default_favicon: str | None

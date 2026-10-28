@@ -1,5 +1,6 @@
 import frappe
 
+from buzz import brand
 from buzz.api.branding.exceptions import CannotEditBranding
 from buzz.api.branding.schemas import BrandingSettings
 from buzz.www.site_header import default_brand_name
@@ -20,10 +21,15 @@ def require_manager():
 
 def configured_branding() -> BrandingSettings:
 	settings = frappe.get_doc("Buzz Settings")
+	defaults = brand.hooked()
 	return BrandingSettings(
 		**{field: settings.get(field) or None for field in FIELDS},
 		show_brand_name=bool(settings.show_brand_name),
 		default_name=default_brand_name(),
+		default_logo=defaults.get("logo"),
+		default_logo_dark=defaults.get("logo_dark"),
+		default_icon=defaults.get("icon"),
+		default_favicon=defaults.get("favicon"),
 	)
 
 
@@ -38,5 +44,5 @@ def save_branding(show_brand_name: bool, **values: str | None):
 
 def tile_logo() -> str:
 	"""The square mark suits a tile best, then the logo, then the Buzz mark."""
-	settings = frappe.get_cached_doc("Buzz Settings")
-	return settings.app_icon or settings.app_logo or TILE_FALLBACK
+	light, _ = brand.logos()
+	return brand.icon() or light or TILE_FALLBACK

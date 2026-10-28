@@ -13,6 +13,10 @@ const settings: BrandingSettings = {
 	favicon: null,
 	show_brand_name: false,
 	default_name: "Buzz",
+	default_logo: null,
+	default_logo_dark: null,
+	default_icon: null,
+	default_favicon: null,
 }
 
 test("the draft keeps the five settings and drops the fallback name", () => {

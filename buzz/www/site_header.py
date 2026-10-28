@@ -6,6 +6,7 @@ from frappe.website.doctype.website_settings.website_settings import (
 	modify_header_footer_items,
 )
 
+from buzz import brand
 from buzz.events.doctype.buzz_theme.buzz_theme import resolve_theme, theme_css
 
 BUZZ_NAVBAR = "Buzz Navbar"
@@ -37,7 +38,7 @@ def buzz_navbar() -> dict:
 
 
 def default_brand_name() -> str:
-	return frappe.get_cached_doc("Website Settings").app_name or "Buzz"
+	return brand.hooked().get("name") or frappe.get_cached_doc("Website Settings").app_name or "Buzz"
 
 
 class SiteHeader:
@@ -59,20 +60,23 @@ class SiteHeader:
 		return {"user": info.name, "fullname": info.fullname, "user_image": info.avatar}
 
 	def brand(self) -> dict:
-		buzz_settings = frappe.get_cached_doc("Buzz Settings")
+		settings = frappe.get_cached_doc("Buzz Settings")
+		light, dark = brand.logos()
+		name = brand.name()
 		return {
-			"logo": buzz_settings.app_logo or DEFAULT_LOGO,
-			"logo_dark": buzz_settings.app_logo_dark,
-			"icon": buzz_settings.app_icon,
-			"name": buzz_settings.brand_name or default_brand_name(),
-			"is_named": bool(buzz_settings.brand_name),
-			"show_name": bool(buzz_settings.brand_name and buzz_settings.show_brand_name),
+			"logo": light or DEFAULT_LOGO,
+			"logo_dark": dark,
+			"icon": brand.icon(),
+			"name": name or self.settings.app_name or "Buzz",
+			"is_named": bool(name),
+			"show_name": bool(name and settings.show_brand_name),
 			"favicon": self.favicon(),
-			"is_default": not buzz_settings.app_logo,
+			"is_default": not light,
 		}
 
 	def favicon(self) -> str:
-		return frappe.get_cached_doc("Buzz Settings").favicon or self.settings.favicon or DEFAULT_FAVICON
+		settings = frappe.get_cached_doc("Buzz Settings")
+		return settings.favicon or self.settings.favicon or brand.hooked().get("favicon") or DEFAULT_FAVICON
 
 	def navbar(self) -> dict:
 		items = modify_header_footer_items(self.settings.top_bar_items)
