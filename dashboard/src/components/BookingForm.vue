@@ -30,6 +30,7 @@
 			:title="successTitle"
 			:reference="completed.pendingVerification ? completed.bookingName : undefined"
 			:pending="completed.pendingVerification"
+			:note="safeMarkdown(success.message)"
 			@login="openLoginDialog()"
 		>
 			{{ successMessage }}
@@ -106,8 +107,10 @@
 							:categories="ticketCategories"
 							:add-ons="addOns"
 							:custom-fields="ticketCustomFields"
+							:fields-for="ticketFieldsFor"
 							:show-errors="tried"
 							:last-name-required="isZoomEvent"
+							:core-fields="coreFields.Ticket ?? []"
 							:collapsible="isMobile"
 						/>
 
@@ -116,6 +119,7 @@
 							v-model:booking-custom-fields-data="bookingCustomFieldsData"
 							:billing="billing"
 							:phone-required="isGuestMode && isPhoneOtp"
+							:core-fields="coreFields.Booking ?? []"
 							:phone-error="otp.phoneError"
 							:booking-custom-fields="bookingCustomFields"
 							:show-invoice="tax.apply"
@@ -280,6 +284,8 @@ import type {
 } from "@/types"
 import { formatWholePriceOrFree } from "@/utils/currency"
 import { eventPath } from "@/utils/eventUrl"
+import { applyLogic, type LogicRule } from "@/utils/formLogic"
+import { safeMarkdown } from "@/utils/markdown"
 import { siteHeaderHidden } from "@/utils/navbar"
 import { serverErrorMessage } from "@/utils/serverError"
 import { isZoomBackedCategory } from "@/utils/zoomCategory"
@@ -287,6 +293,7 @@ import { isZoomBackedCategory } from "@/utils/zoomCategory"
 import OfflinePaymentDialog from "./OfflinePaymentDialog.vue"
 import AttendeesStep from "./registration/AttendeesStep.vue"
 import CheckoutHeader from "./registration/CheckoutHeader.vue"
+import type { CoreField } from "./registration/coreFields"
 import CouponField from "./registration/CouponField.vue"
 import CurrencySwitch from "./registration/CurrencySwitch.vue"
 import DetailsStep from "./registration/DetailsStep.vue"
@@ -319,6 +326,15 @@ const props = defineProps({
 	taxSettings: { type: Object as PropType<Record<string, any>>, default: () => ({}) },
 	eventDetails: { type: Object as PropType<Record<string, any>>, default: () => ({}) },
 	customFields: { type: Array as PropType<FrappeField[]>, default: () => [] },
+	// Show, hide and require rules per registration form, keyed like a field's applied_to.
+	logicRules: { type: Object as PropType<Record<string, LogicRule[]>>, default: () => ({}) },
+	// Core field rows per registration form, keyed like logicRules.
+	coreFields: { type: Object as PropType<Record<string, CoreField[]>>, default: () => ({}) },
+	// The organiser's own title and message for a finished booking.
+	success: {
+		type: Object as PropType<{ title?: string | null; message?: string | null }>,
+		default: () => ({}),
+	},
 	eventRoute: { type: String, required: true },
 	paymentGateways: { type: Array as PropType<string[]>, default: () => [] },
 	isGuestMode: { type: Boolean, default: false },
@@ -352,11 +368,26 @@ const isZoomEvent = computed(() => isZoomBackedCategory(props.eventDetails.categ
 const isPhoneOtp = computed(() => props.eventDetails.guest_verification_method === "Phone OTP")
 const requiresLogin = computed(() => props.isGuestMode && !props.eventDetails?.allow_guest_booking)
 const bookingCustomFields = computed(() =>
-	props.customFields.filter((field) => field.applied_to === "Booking"),
+	applyLogic(
+		props.customFields.filter((field) => field.applied_to === "Booking"),
+		props.logicRules.Booking || [],
+		billing.value,
+		bookingCustomFieldsData.value,
+	),
 )
 const ticketCustomFields = computed(() =>
 	props.customFields.filter((field) => field.applied_to === "Ticket"),
 )
+// The attendee questions each ticket asks: rules may name the ticket type or answers above.
+function ticketFieldsFor(attendee: BookingAttendee) {
+	return applyLogic(
+		ticketCustomFields.value,
+		props.logicRules.Ticket || [],
+		{ ...attendee, ticket_type: String(attendee.ticket_type ?? "") },
+		attendee.custom_fields || {},
+	)
+}
+
 const eventId = computed(() =>
 	props.availableTicketTypes[0]?.event ? String(props.availableTicketTypes[0].event) : null,
 )
@@ -523,7 +554,7 @@ const countLabel = computed(() => {
 const validation = useRegistrationValidation({
 	me,
 	attendees,
-	ticketCustomFields,
+	ticketFieldsFor,
 	bookingCustomFields,
 	bookingCustomFieldsData,
 	billing,
@@ -651,7 +682,7 @@ function buildPayload() {
 	return {
 		event: eventId.value,
 		attendees: attendees.value.map((attendee) =>
-			attendeePayload(attendee, ticketCustomFields.value),
+			attendeePayload(attendee, ticketFieldsFor(attendee)),
 		),
 		coupon_code: coupon.appliedCode || null,
 		booking_custom_fields: cleanCustomFields(
@@ -681,6 +712,7 @@ function trimmed(values: Record<string, string>) {
 
 const successTitle = computed(() => {
 	if (completed.value?.pendingVerification) return __("Booking received")
+	if (props.success.title) return props.success.title
 	return isZoomEvent.value ? __("Registration confirmed") : __("You're registered")
 })
 

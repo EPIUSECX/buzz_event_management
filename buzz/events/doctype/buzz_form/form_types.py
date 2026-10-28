@@ -1,10 +1,11 @@
 import re
+from typing import ClassVar
 
 import frappe
 from frappe import _, scrub
 from frappe.utils import get_datetime, get_datetime_in_timezone, get_system_timezone
 
-from buzz.api.forms.fields import parse_excluded_fields
+from buzz.api.forms.fields import get_renderable_fields, system_exclude_fields
 from buzz.utils import build_event_datetimes
 
 SPONSORSHIP_FORM_DOCTYPE = "Sponsorship Enquiry"
@@ -24,12 +25,13 @@ QUESTION_FIELD_NAMES = (
 	"fieldtype",
 	"options",
 	"mandatory",
+	"width",
 	"placeholder",
 	"default_value",
 	"description",
-	"depends_on",
-	"mandatory_depends_on",
 )
+# A template keeps each question's own show and required conditions; a form keeps them as rules.
+TEMPLATE_CONDITION_ACTIONS = {"depends_on": "show", "mandatory_depends_on": "require"}
 
 ENQUIRY_FIELDS = frozenset(
 	{"company_name", "company_logo", "website", "tier", "country", "phone", "contact_email"}
@@ -70,7 +72,23 @@ class FormType:
 	one_per_event = False
 	has_page = True
 	reserved_fieldnames = frozenset()
+	# Standard fields the organiser may move or rename but never hide.
+	locked_fieldnames = frozenset()
+	# The only standard fields offered, in order, with the label the booking page shows.
+	# None offers every renderable field under its doctype label.
+	core_fields: ClassVar[dict[str, str] | None] = None
+	core_width = "Full"
 	answers_field = "additional_fields"
+
+	def standard_fields(self, form_doctype: str) -> dict:
+		"""The doctype's own fields the form offers."""
+		fields = get_renderable_fields(form_doctype, system_exclude_fields(form_doctype))
+		if self.core_fields is not None:
+			return {fieldname: fields[fieldname] for fieldname in self.core_fields}
+		return fields if self.has_page else {}
+
+	def default_label(self, fieldname: str, df) -> str:
+		return (self.core_fields or {}).get(fieldname) or df.label
 
 	def is_closed(self, form) -> bool:
 		return is_form_closed(form.publish, form.auto_close_at, event_time_zone(form.event))
@@ -96,11 +114,15 @@ class FormType:
 class SponsorshipFormType(FormType):
 	one_per_event = True
 	reserved_fieldnames = ENQUIRY_FIELDS
+	locked_fieldnames = frozenset({"contact_email"})
+
+	def standard_fields(self, form_doctype: str) -> dict:
+		"""An enquiry also holds the team's own notes; applicants see only these."""
+		fields = super().standard_fields(form_doctype)
+		return {fieldname: df for fieldname, df in fields.items() if fieldname in ENQUIRY_FIELDS}
 
 	def validate(self, form):
 		super().validate(form)
-		if "contact_email" in (parse_excluded_fields(form.excluded_fields) or set()):
-			frappe.throw(_("Contact Email cannot be hidden."))
 		form.login_required = 0
 
 
@@ -118,6 +140,12 @@ class TalkProposalFormType(FormType):
 class RegistrationFormType(FormType):
 	one_per_event = True
 	has_page = False  # registration is served by /book-tickets, not /b/<event>/<route>
+	core_fields: ClassVar[dict[str, str]] = {
+		"buyer_name": "Full name",
+		"buyer_email": "Email",
+		"buyer_phone": "Phone",
+	}
+	locked_fieldnames = frozenset({"buyer_name", "buyer_email"})
 
 	def is_closed(self, form) -> bool:
 		event = frappe.get_cached_doc("Buzz Event", form.event)
@@ -131,6 +159,12 @@ class AttendeeFormType(FormType):
 
 	one_per_event = True
 	has_page = False
+	core_fields: ClassVar[dict[str, str]] = {
+		"first_name": "First name",
+		"last_name": "Last name",
+		"email": "Email",
+	}
+	locked_fieldnames = frozenset({"first_name", "email"})
 	answers_field = "custom_fields"
 
 	def is_closed(self, form) -> bool:
@@ -183,6 +217,35 @@ def create_default_forms(event: str):
 		form.insert(ignore_permissions=True)
 
 
+def template_rules(field) -> list[dict]:
+	"""A template question's own conditions, as rules on the form it joins."""
+	return [
+		{
+			"match": "all",
+			"conditions": frappe.parse_json(field.get(key)),
+			"actions": [[action, field.fieldname]],
+		}
+		for key, action in TEMPLATE_CONDITION_ACTIONS.items()
+		if field.get(key)
+	]
+
+
+def template_conditions(rules: list[dict], fieldname: str) -> dict:
+	"""The reverse: a rule a template can carry acts on this one question alone, matching all."""
+	conditions = {}
+	for key, action in TEMPLATE_CONDITION_ACTIONS.items():
+		rule = next(
+			(
+				rule
+				for rule in rules
+				if rule.get("match", "all") == "all" and rule.get("actions") == [[action, fieldname]]
+			),
+			None,
+		)
+		conditions[key] = frappe.as_json(rule["conditions"], indent=None) if rule else None
+	return conditions
+
+
 def unique_fieldname(label_or_fieldname: str, taken: set, reserved: frozenset) -> str:
 	"""Legacy questions were never held to the new key rules, so reshape rather than refuse.
 
@@ -190,7 +253,7 @@ def unique_fieldname(label_or_fieldname: str, taken: set, reserved: frozenset) -
 	strands every other event. Old answers keep their own fieldname copy, so a rename here
 	only affects what arrives next.
 	"""
-	name = re.sub(r"[^a-z0-9_]", "_", scrub(label_or_fieldname or ""))
+	name = re.sub(r"[^a-z0-9_]", "_", scrub(label_or_fieldname or "")).strip("_")
 	if not name[:1].isalpha():
 		name = f"question_{name}"
 	candidate, suffix = name, 2

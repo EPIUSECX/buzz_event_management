@@ -8,6 +8,7 @@
  "field_order": [
   "form_tab",
   "title",
+  "description",
   "event",
   "form_doctype",
   "column_break_settings",
@@ -15,15 +16,22 @@
   "publish",
   "login_required",
   "auto_close_at",
-  "excluded_fields",
   "questions_tab",
   "questions",
+  "logic_rules",
   "messages_tab",
+  "submit_label",
   "success_title",
   "success_message",
+  "redirect_url",
   "column_break_messages",
   "closed_title",
-  "closed_message"
+  "closed_message",
+  "link_preview_section",
+  "meta_title",
+  "meta_description",
+  "meta_image",
+  "og_image"
  ],
  "fields": [
   {
@@ -37,6 +45,12 @@
    "in_list_view": 1,
    "label": "Title",
    "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "description": "Shown under the form title."
   },
   {
    "fieldname": "event",
@@ -91,13 +105,6 @@
    "depends_on": "eval:doc.form_doctype!='Event Booking Attendee'"
   },
   {
-   "description": "Comma-separated field names to hide from the form. Leave empty to show all. Mandatory fields cannot be hidden.",
-   "fieldname": "excluded_fields",
-   "fieldtype": "Small Text",
-   "label": "Excluded Fields",
-   "depends_on": "eval:!['Event Booking','Event Booking Attendee'].includes(doc.form_doctype)"
-  },
-  {
    "fieldname": "questions_tab",
    "fieldtype": "Tab Break",
    "label": "Questions"
@@ -109,10 +116,21 @@
    "options": "Buzz Form Field"
   },
   {
+   "fieldname": "logic_rules",
+   "fieldtype": "JSON",
+   "label": "Logic Rules",
+   "description": "List of {match: all or any, conditions: [[fieldname, operator, value]], actions: [[show, hide or require, question]]}."
+  },
+  {
    "fieldname": "messages_tab",
    "fieldtype": "Tab Break",
    "label": "Messages",
    "depends_on": "eval:!['Event Booking','Event Booking Attendee'].includes(doc.form_doctype)"
+  },
+  {
+   "fieldname": "submit_label",
+   "fieldtype": "Data",
+   "label": "Submit Button Label"
   },
   {
    "fieldname": "success_title",
@@ -123,6 +141,13 @@
    "fieldname": "success_message",
    "fieldtype": "Markdown Editor",
    "label": "Success Message"
+  },
+  {
+   "fieldname": "redirect_url",
+   "fieldtype": "Data",
+   "options": "URL",
+   "label": "Redirect To",
+   "description": "Send people here after they submit, instead of the success message."
   },
   {
    "fieldname": "column_break_messages",
@@ -137,6 +162,35 @@
    "fieldname": "closed_message",
    "fieldtype": "Small Text",
    "label": "Closed Message"
+  },
+  {
+   "fieldname": "link_preview_section",
+   "fieldtype": "Section Break",
+   "label": "Link Preview"
+  },
+  {
+   "fieldname": "meta_title",
+   "fieldtype": "Data",
+   "label": "Preview Title",
+   "description": "Shown when the form link is shared. Defaults to the form and event names."
+  },
+  {
+   "fieldname": "meta_description",
+   "fieldtype": "Small Text",
+   "label": "Preview Description"
+  },
+  {
+   "fieldname": "meta_image",
+   "fieldtype": "Attach Image",
+   "label": "Preview Image",
+   "description": "Leave empty to use an image drawn from the form and its event"
+  },
+  {
+   "fieldname": "og_image",
+   "fieldtype": "Attach Image",
+   "label": "Generated Preview Image",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "links": [
@@ -145,7 +199,7 @@
    "link_fieldname": "enquiry_form"
   }
  ],
- "modified": "2026-10-27 12:00:00.000000",
+ "modified": "2026-10-28 01:09:14.270094",
  "modified_by": "Administrator",
  "module": "Events",
  "name": "Buzz Form",

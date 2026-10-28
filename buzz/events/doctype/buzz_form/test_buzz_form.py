@@ -143,8 +143,10 @@ class TestBuzzFormValidation(IntegrationTestCase):
 			with self.subTest(route):
 				self.assertTrue(BuzzFormFactory.create(event=self.event.name, route=route).name)
 
-	def test_contact_email_cannot_be_excluded(self):
-		self.form.excluded_fields = "contact_email"
+	def test_contact_email_cannot_be_hidden(self):
+		for row in self.form.questions:
+			if row.fieldname == "contact_email":
+				row.enabled = 0
 
 		with self.assertRaises(frappe.ValidationError):
 			self.form.save()
@@ -171,7 +173,7 @@ class TestBuzzFormValidation(IntegrationTestCase):
 	def test_a_saved_fieldname_cannot_be_renamed(self):
 		self.add_question(fieldname="budget")
 		self.form.save()
-		self.form.questions[0].fieldname = "spend"
+		self.form.questions[-1].fieldname = "spend"
 
 		with self.assertRaises(frappe.ValidationError):
 			self.form.save()
@@ -183,16 +185,17 @@ class TestBuzzFormValidation(IntegrationTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			form.save()
 
-	def test_a_condition_that_is_not_json_is_refused(self):
-		self.add_question(fieldname="budget", depends_on="[not json")
+	def test_rules_that_are_not_json_are_refused(self):
+		self.add_question(fieldname="budget")
+		self.form.logic_rules = "[not json"
 
 		with self.assertRaises(frappe.ValidationError):
 			self.form.save()
 
 	def test_an_unknown_condition_operator_is_refused(self):
-		self.add_question(fieldname="budget", depends_on=condition("tier", "like", "Gold"))
+		self.add_question(fieldname="budget", depends_on=condition("tier", "~", "Gold"))
 
-		with self.assertRaisesRegex(frappe.ValidationError, "Condition on Budget"):
+		with self.assertRaisesRegex(frappe.ValidationError, "Logic rule"):
 			self.form.save()
 
 	def test_a_condition_naming_its_own_question_is_refused(self):
@@ -222,12 +225,11 @@ class TestBuzzFormValidation(IntegrationTestCase):
 
 		self.form.save()
 
-		self.assertEqual(len(self.form.questions), 2)
+		self.assertEqual(len([row for row in self.form.questions if not row.is_standard]), 2)
 
 	def add_question(self, **question):
-		self.form.append(
-			"questions",
-			{"label": "Budget", "fieldtype": "Number", "enabled": 1, **question},
+		BuzzFormFactory.append_question(
+			self.form, **{"label": "Budget", "fieldtype": "Number", "enabled": 1, **question}
 		)
 
 
@@ -334,7 +336,10 @@ class TestAttendeeForm(IntegrationTestCase):
 
 		self.attendee_form.save()
 
-		self.assertEqual([question.fieldname for question in self.attendee_form.questions], ["company"])
+		self.assertEqual(
+			[question.fieldname for question in self.attendee_form.questions if not question.is_standard],
+			["company"],
+		)
 
 	def test_a_question_may_show_for_a_ticket_type(self):
 		ticket_type = EventTicketTypeFactory.create(event=self.event.name)
@@ -346,7 +351,9 @@ class TestAttendeeForm(IntegrationTestCase):
 
 		self.attendee_form.save()
 
-		self.assertEqual(len(self.attendee_form.questions), 1)
+		self.assertEqual(
+			len([question for question in self.attendee_form.questions if not question.is_standard]), 1
+		)
 
 	def test_a_ticket_type_of_another_event_is_refused(self):
 		foreign_ticket_type = EventTicketTypeFactory.create()
@@ -365,4 +372,6 @@ class TestAttendeeForm(IntegrationTestCase):
 
 
 def add_registration_question(form, **question):
-	form.append("questions", {"label": "Question", "fieldtype": "Data", "enabled": 1, **question})
+	BuzzFormFactory.append_question(
+		form, **{"label": "Question", "fieldtype": "Data", "enabled": 1, **question}
+	)

@@ -181,6 +181,36 @@
 		</FileUploader>
 	</div>
 
+	<h3 v-else-if="field.fieldtype === 'Heading'" class="pt-2 text-lg font-semibold text-ink-gray-9">
+		{{ __(field.label) }}
+	</h3>
+
+	<div
+		v-else-if="field.fieldtype === 'Paragraph'"
+		class="prose prose-sm max-w-none text-ink-gray-7"
+		v-html="field.description"
+	/>
+
+	<hr v-else-if="field.fieldtype === 'Divider'" class="border-outline-gray-2" />
+
+	<!-- Steps are split out by the form; anywhere else a page break draws nothing. -->
+	<template v-else-if="field.fieldtype === 'Page Break'" />
+
+	<RadioGroup
+		v-else-if="field.fieldtype === 'Radio'"
+		:model-value="modelValue"
+		@update:model-value="$emit('update:modelValue', $event)"
+		:label="__(field.label)"
+		:required="!!field.mandatory"
+	>
+		<Radio
+			v-for="option in getFieldOptions(field)"
+			:key="option.value"
+			:value="option.value"
+			:label="option.label"
+		/>
+	</RadioGroup>
+
 	<FormControl
 		v-else
 		:model-value="modelValue"
@@ -201,6 +231,8 @@ import {
 	FileUploader,
 	TimePicker,
 	MultiSelect,
+	Radio,
+	RadioGroup,
 	Rating,
 	Textarea,
 } from "frappe-ui"
@@ -217,7 +249,7 @@ import {
 	isDateField,
 	isDateTimeField,
 } from "@/composables/useCustomFields"
-import { richTextExtensions, richTextToolbar } from "@/utils/richTextEditor"
+import { EMPTY_EDITOR_HTML, richTextExtensions, richTextToolbar } from "@/utils/richTextEditor"
 
 const props = defineProps({
 	field: {
@@ -238,17 +270,10 @@ const multiSelectProxy = computed({
 		return Array.isArray(model.value) ? model.value : String(model.value).split(",")
 	},
 	set(val) {
-		if (!val || val.length === 0) {
-			model.value = ""
-		} else {
-			const values = val.map((item) => item.value || item)
-			model.value = values.join(",")
-		}
+		// The server takes a Multi Select answer as a list.
+		model.value = (val ?? []).map((item) => item.value || item)
 	},
 })
-
-// An emptied editor emits an empty paragraph, which mandatory checks would accept.
-const EMPTY_EDITOR_HTML = /^(<p>(<br\s*\/?>)?<\/p>)?$/
 
 const richTextValue = computed({
 	get: () => model.value || "",
