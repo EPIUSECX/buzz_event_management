@@ -62,7 +62,7 @@ jobs:
       - name: Setup Bench
         uses: ./.github/actions/setup-bench
         with:
-          bma-integrations-token: ${{ secrets.BMA_INTEGRATIONS_TOKEN }}
+          bma-integrations-deploy-key: ${{ secrets.BMA_INTEGRATIONS_DEPLOY_KEY }}
           site-name: buzz.test
           build-assets: true
 

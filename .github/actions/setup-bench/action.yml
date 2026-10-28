@@ -14,8 +14,8 @@ inputs:
     description: "Git URL of one more app to install before buzz. App name is the last path segment."
     required: false
     default: ""
-  bma-integrations-token:
-    description: "Token that can read the private EPIUSECX/bma_integrations repository."
+  bma-integrations-deploy-key:
+    description: "Private half of a read-only deploy key on the private EPIUSECX/bma_integrations repository."
     required: true
   frappe-branch:
     description: "Branch of frappe to install. Empty uses the repo's default branch."
@@ -102,13 +102,19 @@ runs:
       shell: bash -e {0}
       working-directory: /home/runner/frappe-bench
       env:
-        BMA_INTEGRATIONS_TOKEN: ${{ inputs.bma-integrations-token }}
+        BMA_INTEGRATIONS_DEPLOY_KEY: ${{ inputs.bma-integrations-deploy-key }}
         EXTRA_APP_URL: ${{ inputs.extra-app-url }}
         FRAPPE_BRANCH: ${{ inputs.frappe-branch }}
       run: |
         # buzz lists bma_integrations in required_apps (its payment gateways), so it must
-        # precede install-app. The repo is private, and has one branch for every Frappe version.
-        bench get-app --skip-assets "https://x-access-token:${BMA_INTEGRATIONS_TOKEN}@github.com/EPIUSECX/bma_integrations"
+        # precede install-app. The repo is private: a read-only deploy key fetches it over SSH,
+        # and it has one branch for every Frappe version.
+        install -m 700 -d ~/.ssh
+        install -m 600 /dev/null ~/.ssh/bma_integrations
+        printf '%s\n' "$BMA_INTEGRATIONS_DEPLOY_KEY" > ~/.ssh/bma_integrations
+        ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+        GIT_SSH_COMMAND="ssh -i ~/.ssh/bma_integrations -o IdentitiesOnly=yes" \
+          bench get-app --skip-assets git@github.com:EPIUSECX/bma_integrations.git
 
         # Test-only: buzz/tests/factories imports frappe_factory_bot. No install-app —
         # the app ships no DocTypes, and get-app already pip-installs it into the env.
