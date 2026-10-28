@@ -73,12 +73,12 @@ const goBack = () => (window.history.state?.back ? router.back() : goToEvents())
 		>
 			<template v-if="isWhitelabel && !isCollapsed && brand">
 				<img
-					class="ml-1.5 h-5 w-auto max-w-36 object-contain object-left dark:hidden"
+					class="ml-1.5 h-7 w-auto max-w-40 object-contain object-left dark:hidden"
 					:src="brand.logo"
 					:alt="brandName"
 				/>
 				<img
-					class="ml-1.5 hidden h-5 w-auto max-w-36 object-contain object-left dark:block"
+					class="ml-1.5 hidden h-7 w-auto max-w-40 object-contain object-left dark:block"
 					:src="brand.logo_dark || brand.logo"
 					:alt="brandName"
 				/>
