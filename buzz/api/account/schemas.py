@@ -28,6 +28,8 @@ class Brand(APIResponse):
 	# The name is drawn beside the logo, which the site chose because the logo lacks it.
 	show_name: bool
 	favicon: str
+	# Where Report an Issue opens.
+	issues_url: str
 	# No whitelabel logo is set, so clients draw the Buzz wordmark.
 	is_default: bool
 

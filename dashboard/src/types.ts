@@ -119,6 +119,8 @@ export interface Brand {
 	name: string
 	// A brand name is set, so `name` is not the site's app name.
 	is_named: boolean
+	// Where Report an Issue opens.
+	issues_url: string
 	// The name is drawn beside the logo.
 	show_name: boolean
 	favicon: string

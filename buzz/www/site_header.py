@@ -72,6 +72,7 @@ class SiteHeader:
 			"show_name": bool(name and settings.show_brand_name),
 			"favicon": self.favicon(),
 			"is_default": not light,
+			"issues_url": brand.issues_url(),
 		}
 
 	def favicon(self) -> str:

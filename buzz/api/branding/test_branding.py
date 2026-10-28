@@ -9,6 +9,7 @@ from PIL import Image
 from buzz.api.branding import app_tile_logo, get_branding, update_branding
 from buzz.api.branding.exceptions import CannotEditBranding
 from buzz.api.branding.services import TILE_FALLBACK
+from buzz.brand import ISSUES_URL
 from buzz.emails import email_brand
 from buzz.events.og_image import LOGO_BOX, WORDMARK_SIZE, EventOgImage, brand_logo
 from buzz.www.site_header import DEFAULT_FAVICON, SiteHeader
@@ -103,6 +104,9 @@ class TestBrandingReachesThePages(BrandingTestCase):
 		self.update(brand_name="Acme Events")
 		self.assertTrue(SiteHeader().brand()["is_named"])
 
+	def test_report_an_issue_opens_buzzs_tracker_unless_an_app_sets_one(self):
+		self.assertEqual(SiteHeader().brand()["issues_url"], ISSUES_URL)
+
 	def test_the_name_shows_beside_the_logo_only_when_asked(self):
 		self.update(brand_name="Acme Events")
 		self.assertFalse(SiteHeader().brand()["show_name"])
@@ -176,6 +180,7 @@ class TestAppDefaults(BrandingTestCase):
 		"logo_dark": "/assets/acme/dark.png",
 		"icon": "/assets/acme/mark.png",
 		"favicon": "/assets/acme/fav.png",
+		"issues_url": "https://github.com/acme/buzz/issues/new",
 	}
 
 	def setUp(self):
@@ -198,6 +203,7 @@ class TestAppDefaults(BrandingTestCase):
 			),
 		)
 		self.assertEqual((brand["is_default"], brand["is_named"], brand["show_name"]), (False, True, False))
+		self.assertEqual(brand["issues_url"], "https://github.com/acme/buzz/issues/new")
 
 	def test_buzz_settings_beat_the_defaults_and_the_logos_stay_a_pair(self):
 		self.update(

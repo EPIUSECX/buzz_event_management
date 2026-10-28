@@ -8,12 +8,15 @@ An app installed beside Buzz sets the defaults with a hook, so the Buzz fork sta
 		"logo_dark": "/assets/acme/images/logo-dark.png",
 		"icon": "/assets/acme/images/mark.png",
 		"favicon": "/assets/acme/images/favicon.png",
+		"issues_url": "https://github.com/acme/buzz/issues/new",
 	}
 
 Every key is optional. Buzz Settings always wins, and the two logos only ever come as one pair.
 """
 
 import frappe
+
+ISSUES_URL = "https://github.com/bwhtech/buzz/issues/new"
 
 
 def hooked() -> frappe._dict:
@@ -37,6 +40,11 @@ def logo_for(scheme: str) -> str | None:
 
 def icon() -> str | None:
 	return frappe.get_cached_doc("Buzz Settings").app_icon or hooked().get("icon")
+
+
+def issues_url() -> str:
+	"""Where the user menu sends Report an Issue."""
+	return hooked().get("issues_url") or ISSUES_URL
 
 
 def name() -> str | None:

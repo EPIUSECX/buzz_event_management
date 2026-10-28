@@ -16,6 +16,7 @@ import { computed, inject, ref } from "vue"
 
 import UserSettingsDialog from "@/components/UserSettingsDialog.vue"
 import { session } from "@/data/session"
+import { userResource } from "@/data/user"
 
 // hideTrigger: the sheet opens from elsewhere, through v-model:sheet-open.
 withDefaults(defineProps<{ variant?: "sidebar" | "sheet"; hideTrigger?: boolean }>(), {
@@ -32,7 +33,9 @@ const { colorScheme, setColorScheme } = useColorScheme()
 const settingsOpen = ref(false)
 const sheetOpen = defineModel<boolean>("sheetOpen", { default: false })
 
+// The site can point this at its own tracker; Buzz's is the fallback.
 const NEW_ISSUE_URL = "https://github.com/bwhtech/buzz/issues/new"
+const issuesUrl = computed(() => userResource.data?.brand.issues_url ?? NEW_ISSUE_URL)
 
 const themes = [
 	{ value: "light", icon: "lucide-sun", label: __("Light") },
@@ -45,7 +48,7 @@ const setTheme = (value: TabButtonValue) =>
 	setColorScheme(value as (typeof themes)[number]["value"])
 
 const openSettings = () => (settingsOpen.value = true)
-const reportIssue = () => window.open(NEW_ISSUE_URL, "_blank", "noopener")
+const reportIssue = () => window.open(issuesUrl.value, "_blank", "noopener")
 const logOut = () => session.logout.fetch()
 const logOutLabel = computed(() => (session.logout.loading ? __("Signing out…") : __("Log Out")))
 
