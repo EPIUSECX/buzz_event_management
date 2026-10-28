@@ -10,14 +10,21 @@ from buzz.api.branding.services import TILE_FALLBACK
 from buzz.events.og_image import LOGO_BOX, WORDMARK_SIZE, EventOgImage, brand_logo
 from buzz.www.site_header import DEFAULT_FAVICON, SiteHeader
 
-BLANK = {"brand_name": None, "app_logo": None, "app_logo_dark": None, "app_icon": None, "favicon": None}
+BLANK = {
+	"brand_name": None,
+	"app_logo": None,
+	"app_logo_dark": None,
+	"app_icon": None,
+	"favicon": None,
+	"show_brand_name": False,
+}
 
 
 class BrandingTestCase(IntegrationTestCase):
 	def setUp(self):
 		# Keeps the site's own branding out of every assertion; the rollback restores it
-		for field in BLANK:
-			frappe.db.set_single_value("Buzz Settings", field, None)
+		for field, empty in BLANK.items():
+			frappe.db.set_single_value("Buzz Settings", field, empty)
 		frappe.clear_document_cache("Buzz Settings", "Buzz Settings")
 
 	def update(self, **values):
@@ -90,6 +97,17 @@ class TestBrandingReachesThePages(BrandingTestCase):
 		self.assertFalse(SiteHeader().brand()["is_named"])
 		self.update(brand_name="Acme Events")
 		self.assertTrue(SiteHeader().brand()["is_named"])
+
+	def test_the_name_shows_beside_the_logo_only_when_asked(self):
+		self.update(brand_name="Acme Events")
+		self.assertFalse(SiteHeader().brand()["show_name"])
+		self.update(brand_name="Acme Events", show_brand_name=True)
+		self.assertTrue(SiteHeader().brand()["show_name"])
+		self.assertTrue(get_branding().show_brand_name)
+
+	def test_a_ticked_box_without_a_name_shows_nothing(self):
+		self.update(show_brand_name=True)
+		self.assertFalse(SiteHeader().brand()["show_name"])
 
 	def test_without_settings_the_website_favicon_then_the_buzz_default_apply(self):
 		self.set_website_favicon(None)

@@ -82,8 +82,8 @@ const goBack = () => (window.history.state?.back ? router.back() : goToEvents())
 					:src="brand.logo_dark || brand.logo"
 					:alt="brandName"
 				/>
-				<!-- A name set on its own shows beside the logo, as the field says. -->
-				<span v-if="brand.is_named" class="flex-1 truncate text-base font-medium text-ink-gray-8">
+				<!-- Only when asked: many logos already carry the name. -->
+				<span v-if="brand.show_name" class="flex-1 truncate text-base font-medium text-ink-gray-8">
 					{{ brand.name }}
 				</span>
 			</template>

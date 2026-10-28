@@ -11,6 +11,7 @@ const settings: BrandingSettings = {
 	app_logo_dark: "/files/dark.png",
 	app_icon: null,
 	favicon: null,
+	show_brand_name: false,
 	default_name: "Buzz",
 }
 
@@ -21,6 +22,7 @@ test("the draft keeps the five settings and drops the fallback name", () => {
 		app_logo_dark: "/files/dark.png",
 		app_icon: null,
 		favicon: null,
+		show_brand_name: false,
 	})
 })
 
@@ -31,6 +33,7 @@ test("a draft of nothing is empty", () => {
 		app_logo_dark: null,
 		app_icon: null,
 		favicon: null,
+		show_brand_name: false,
 	})
 })
 
@@ -48,6 +51,7 @@ test("changing any setting makes the draft dirty", () => {
 	const saved = draftOf(settings)
 	assert.equal(isBrandingDirty({ ...saved, brand_name: "Other" }, saved), true)
 	assert.equal(isBrandingDirty({ ...saved, favicon: "/files/fav.png" }, saved), true)
+	assert.equal(isBrandingDirty({ ...saved, show_brand_name: true }, saved), true)
 	assert.equal(isBrandingDirty({ ...saved, app_logo: null, app_logo_dark: null }, saved), true)
 })
 

@@ -113,11 +113,17 @@ function showFavicon(url: string | undefined) {
 					@update:model-value="(value: string) => (draft.brand_name = value)"
 				/>
 				<p class="text-p-sm text-ink-gray-6">
-					{{
-						__(
-							"Shown beside the logo in the sidebar, and in tooltips. Empty uses the site's app name there.",
-						)
-					}}
+					{{ __("Names the site in tooltips. Empty uses the site's app name there.") }}
+				</p>
+				<FormControl
+					type="checkbox"
+					:label="__('Show the name beside the logo')"
+					:disabled="!draft.brand_name?.trim()"
+					:model-value="draft.show_brand_name"
+					@update:model-value="(value: boolean) => (draft.show_brand_name = value)"
+				/>
+				<p class="text-p-sm text-ink-gray-6">
+					{{ __("Leave this off when your logo already includes the name.") }}
 				</p>
 			</section>
 

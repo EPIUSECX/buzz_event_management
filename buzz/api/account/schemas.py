@@ -25,6 +25,8 @@ class Brand(APIResponse):
 	name: str
 	# A brand name is set in Buzz Settings, so `name` is not the site's app name.
 	is_named: bool
+	# The name is drawn beside the logo, which the site chose because the logo lacks it.
+	show_name: bool
 	favicon: str
 	# No whitelabel logo is set, so clients draw the Buzz wordmark.
 	is_default: bool

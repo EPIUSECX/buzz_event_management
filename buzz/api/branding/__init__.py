@@ -17,6 +17,7 @@ def update_branding(
 	app_logo_dark: str | None,
 	app_icon: str | None,
 	favicon: str | None,
+	show_brand_name: bool = False,
 ) -> BrandingSettings:
 	services.require_manager()
 	services.save_branding(
@@ -25,6 +26,7 @@ def update_branding(
 		app_logo_dark=app_logo_dark,
 		app_icon=app_icon,
 		favicon=favicon,
+		show_brand_name=show_brand_name,
 	)
 	return services.configured_branding()
 

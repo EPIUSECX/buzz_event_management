@@ -119,6 +119,8 @@ export interface Brand {
 	name: string
 	// A brand name is set, so `name` is not the site's app name.
 	is_named: boolean
+	// The name is drawn beside the logo.
+	show_name: boolean
 	favicon: string
 	is_default: boolean
 }
@@ -130,6 +132,7 @@ export interface BrandingSettings {
 	app_logo_dark: string | null
 	app_icon: string | null
 	favicon: string | null
+	show_brand_name: boolean
 	default_name: string
 }
 

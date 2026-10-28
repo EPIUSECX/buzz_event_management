@@ -21,14 +21,17 @@ def require_manager():
 def configured_branding() -> BrandingSettings:
 	settings = frappe.get_doc("Buzz Settings")
 	return BrandingSettings(
-		**{field: settings.get(field) or None for field in FIELDS}, default_name=default_brand_name()
+		**{field: settings.get(field) or None for field in FIELDS},
+		show_brand_name=bool(settings.show_brand_name),
+		default_name=default_brand_name(),
 	)
 
 
-def save_branding(**values: str | None):
+def save_branding(show_brand_name: bool, **values: str | None):
 	settings = frappe.get_doc("Buzz Settings")
 	for field in FIELDS:
 		settings.set(field, (values[field] or "").strip() or None)
+	settings.show_brand_name = int(show_brand_name)
 	# The doctype refuses a light logo without a dark one
 	settings.save(ignore_permissions=True)
 

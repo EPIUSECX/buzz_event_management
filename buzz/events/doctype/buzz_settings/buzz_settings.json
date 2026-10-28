@@ -30,6 +30,7 @@
   "app_icon",
   "identity_section",
   "brand_name",
+  "show_brand_name",
   "column_break_identity",
   "favicon",
   "payments_tab",
@@ -459,6 +460,13 @@
    "fieldtype": "Data",
    "label": "Brand Name",
    "description": "Shown beside the logo. Empty uses the App Name in Website Settings."
+  },
+  {
+   "default": "0",
+   "description": "Leave this off when the logo already includes the name",
+   "fieldname": "show_brand_name",
+   "fieldtype": "Check",
+   "label": "Show Name Beside Logo"
   },
   {
    "fieldname": "column_break_identity",

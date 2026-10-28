@@ -2,19 +2,26 @@ import type { BrandingSettings } from "@/types"
 
 export type BrandingDraft = Omit<BrandingSettings, "default_name">
 
-const FIELDS = ["brand_name", "app_logo", "app_logo_dark", "app_icon", "favicon"] as const
+const TEXT_FIELDS = ["brand_name", "app_logo", "app_logo_dark", "app_icon", "favicon"] as const
 
 export function draftOf(settings: BrandingSettings | null | undefined): BrandingDraft {
-	return Object.fromEntries(
-		FIELDS.map((field) => [field, settings?.[field] ?? null]),
-	) as BrandingDraft
+	return {
+		...(Object.fromEntries(TEXT_FIELDS.map((field) => [field, settings?.[field] ?? null])) as Omit<
+			BrandingDraft,
+			"show_brand_name"
+		>),
+		show_brand_name: settings?.show_brand_name ?? false,
+	}
 }
 
 // Empty and missing are the same setting.
 const normalised = (value: string | null) => (value ?? "").trim()
 
 export function isBrandingDirty(draft: BrandingDraft, saved: BrandingDraft): boolean {
-	return FIELDS.some((field) => normalised(draft[field]) !== normalised(saved[field]))
+	return (
+		TEXT_FIELDS.some((field) => normalised(draft[field]) !== normalised(saved[field])) ||
+		draft.show_brand_name !== saved.show_brand_name
+	)
 }
 
 // The server refuses a light logo without a dark one and the other way round.

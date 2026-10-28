@@ -9,5 +9,6 @@ class BrandingSettings(APIResponse):
 	app_logo_dark: str | None
 	app_icon: str | None
 	favicon: str | None
+	show_brand_name: bool
 	# What an empty name falls back to.
 	default_name: str

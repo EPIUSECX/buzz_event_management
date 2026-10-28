@@ -48,6 +48,7 @@ class BuzzSettings(Document):
 		google_places_api_key: DF.Password | None
 		list_on_buzz_events: DF.Check
 		login_banner: DF.MarkdownEditor | None
+		show_brand_name: DF.Check
 		show_hosting_banner: DF.Check
 		support_email: DF.Data | None
 	# end: auto-generated types
