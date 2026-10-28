@@ -113,7 +113,11 @@ function showFavicon(url: string | undefined) {
 					@update:model-value="(value: string) => (draft.brand_name = value)"
 				/>
 				<p class="text-p-sm text-ink-gray-6">
-					{{ __("Shown beside the logo. Leave it empty to use the site's app name.") }}
+					{{
+						__(
+							"Shown beside the logo in the sidebar, and in tooltips. Empty uses the site's app name there.",
+						)
+					}}
 				</p>
 			</section>
 

@@ -82,6 +82,10 @@ const goBack = () => (window.history.state?.back ? router.back() : goToEvents())
 					:src="brand.logo_dark || brand.logo"
 					:alt="brandName"
 				/>
+				<!-- A name set on its own shows beside the logo, as the field says. -->
+				<span v-if="brand.is_named" class="flex-1 truncate text-base font-medium text-ink-gray-8">
+					{{ brand.name }}
+				</span>
 			</template>
 			<template v-else>
 				<Avatar :image="compactImage ?? undefined" :label="brandName" size="lg" shape="square" />
