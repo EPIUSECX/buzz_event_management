@@ -86,6 +86,11 @@ class TestBrandingReachesThePages(BrandingTestCase):
 		self.assertEqual((brand["name"], brand["favicon"]), ("Acme Events", "/files/fav.png"))
 		self.assertEqual(SiteHeader().as_context()["favicon"], "/files/fav.png")
 
+	def test_the_brand_says_whether_a_name_is_set(self):
+		self.assertFalse(SiteHeader().brand()["is_named"])
+		self.update(brand_name="Acme Events")
+		self.assertTrue(SiteHeader().brand()["is_named"])
+
 	def test_without_settings_the_website_favicon_then_the_buzz_default_apply(self):
 		self.set_website_favicon(None)
 		self.assertEqual(SiteHeader().favicon(), DEFAULT_FAVICON)

@@ -65,6 +65,7 @@ class SiteHeader:
 			"logo_dark": buzz_settings.app_logo_dark,
 			"icon": buzz_settings.app_icon,
 			"name": buzz_settings.brand_name or default_brand_name(),
+			"is_named": bool(buzz_settings.brand_name),
 			"favicon": self.favicon(),
 			"is_default": not buzz_settings.app_logo,
 		}

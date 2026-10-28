@@ -117,6 +117,8 @@ export interface Brand {
 	logo_dark: string | null
 	icon: string | null
 	name: string
+	// A brand name is set, so `name` is not the site's app name.
+	is_named: boolean
 	favicon: string
 	is_default: boolean
 }

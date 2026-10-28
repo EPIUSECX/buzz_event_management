@@ -21,7 +21,10 @@ const name = computed(() => props.workspace?.title ?? "")
 // Buzz Settings' whitelabel: the full logo when expanded, the app icon when collapsed.
 const brand = computed(() => userResource.data?.brand)
 const isWhitelabel = computed(() => brand.value && !brand.value.is_default)
-const brandName = computed(() => (isWhitelabel.value && brand.value?.name) || "Buzz")
+// The Buzz name stays until a logo or a brand name is set; the site's app name is not a brand.
+const brandName = computed(
+	() => ((isWhitelabel.value || brand.value?.is_named) && brand.value?.name) || "Buzz",
+)
 const compactImage = computed(() =>
 	isWhitelabel.value ? brand.value?.icon : "/assets/buzz/images/buzz-logo-rounded.png",
 )
@@ -83,7 +86,7 @@ const goBack = () => (window.history.state?.back ? router.back() : goToEvents())
 			<template v-else>
 				<Avatar :image="compactImage ?? undefined" :label="brandName" size="lg" shape="square" />
 				<span v-if="!isCollapsed" class="flex-1 truncate text-base font-medium text-ink-gray-8">
-					Buzz
+					{{ brandName }}
 				</span>
 			</template>
 		</router-link>

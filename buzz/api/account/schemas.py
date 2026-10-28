@@ -23,6 +23,8 @@ class Brand(APIResponse):
 	# Square mark for the collapsed dashboard sidebar.
 	icon: str | None
 	name: str
+	# A brand name is set in Buzz Settings, so `name` is not the site's app name.
+	is_named: bool
 	favicon: str
 	# No whitelabel logo is set, so clients draw the Buzz wordmark.
 	is_default: bool
