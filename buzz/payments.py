@@ -129,16 +129,17 @@ def get_payment_link(
 	if hasattr(controller, "validate_transaction_currency"):
 		controller.validate_transaction_currency(currency)
 	payment = record_payment(reference_doctype, reference_docname, amount, currency, payment_gateway)
-	user_full_name = frappe.get_cached_value("User", frappe.session.user, "full_name")
+	payer = payer_of(reference_doctype, reference_docname)
 
 	payment_details = {
 		"amount": amount,
 		"title": title or f"Payment for {reference_doctype}: {reference_docname}",
-		"description": f"{user_full_name}'s payment for {reference_doctype} (#{reference_docname})",
+		"description": f"{payer.name}'s payment for {reference_doctype} (#{reference_docname})",
 		"reference_doctype": reference_doctype,
 		"reference_docname": reference_docname,
-		"payer_email": frappe.session.user,
-		"payer_name": user_full_name,
+		"payer_email": payer.email,
+		"payer_name": payer.name,
+		"payer_phone": payer.phone,
 		"currency": currency,
 		"payment_gateway": payment_gateway,
 		"redirect_to": redirect_to,
@@ -151,6 +152,29 @@ def get_payment_link(
 	url = controller.get_payment_url(**payment_details)
 
 	return url
+
+
+def payer_of(reference_doctype: str, reference_docname: str) -> frappe._dict:
+	"""Who is paying, as the document records them.
+
+	The session user is often Administrator or a guest account with no address a gateway can use,
+	while the buyer on the booking gave a real name, email and number.
+	"""
+	name = email = phone = None
+	if reference_doctype == "Event Booking":
+		name, email, phone = frappe.db.get_value(
+			"Event Booking", reference_docname, ["buyer_name", "buyer_email", "buyer_phone"]
+		)
+	elif reference_doctype == "Sponsorship Enquiry":
+		name, email, phone = frappe.db.get_value(
+			"Sponsorship Enquiry", reference_docname, ["company_name", "contact_email", "phone"]
+		)
+	user = frappe.session.user
+	return frappe._dict(
+		name=name or frappe.get_cached_value("User", user, "full_name"),
+		email=email or (user if "@" in user else None),
+		phone=phone,
+	)
 
 
 def record_payment(
