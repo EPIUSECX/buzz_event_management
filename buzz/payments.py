@@ -205,7 +205,7 @@ def mark_payment_as_received(reference_doctype: str, reference_docname: str):
 
 	request = frappe.get_all(
 		"Integration Request",
-		{
+		filters={
 			"reference_doctype": reference_doctype,
 			"reference_docname": reference_docname,
 		},
