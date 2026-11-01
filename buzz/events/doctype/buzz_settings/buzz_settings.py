@@ -64,9 +64,23 @@ class BuzzSettings(Document):
 			self.refresh_share_images()
 		listing_changed = any(self.has_value_changed(field) for field in LISTING_FIELDS)
 		if self.list_on_buzz_events and listing_changed:
-			frappe.enqueue(
-				"buzz.events.buzz_events_listing.sync_all_events", queue="long", enqueue_after_commit=True
-			)
+			self.enqueue_sync()
+
+	@frappe.whitelist()
+	def sync_events(self):
+		frappe.only_for("System Manager")
+		if not self.list_on_buzz_events:
+			frappe.throw(_("Turn on listing on buzz.events first."))
+		self.enqueue_sync()
+
+	def enqueue_sync(self):
+		frappe.enqueue(
+			"buzz.events.buzz_events_listing.sync_all_events",
+			queue="long",
+			job_id="buzz_events_sync_all",
+			deduplicate=True,
+			enqueue_after_commit=True,
+		)
 
 	def refresh_share_images(self):
 		# Imported here: the image code imports the event pages, which import this doctype
