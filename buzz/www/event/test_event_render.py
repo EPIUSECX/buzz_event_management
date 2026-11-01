@@ -104,7 +104,9 @@ class TestEventPageRender(IntegrationTestCase):
 		self.addCleanup(settings.db_set, "favicon", settings.favicon)
 		settings.db_set("favicon", None)
 		frappe.clear_document_cache("Website Settings", "Website Settings")
-		self.assertIn(DEFAULT_FAVICON, render(self.route))
+		# An app installed beside Buzz may set its own default brand, which is not what this checks
+		with patch("buzz.brand.hooked", return_value=frappe._dict()):
+			self.assertIn(DEFAULT_FAVICON, render(self.route))
 
 	def test_structured_data_in_page(self):
 		times = {"time_zone": "Asia/Kolkata", "start_time": "09:30:00", "end_time": "17:00:00"}
