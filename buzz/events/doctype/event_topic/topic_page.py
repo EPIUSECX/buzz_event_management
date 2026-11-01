@@ -36,11 +36,6 @@ class TopicPage(EventTimeline):
 	def event_filters(self) -> dict:
 		return {"name": ["in", self.topic_events]}
 
-	@cached_property
-	def external_events(self) -> list:
-		# Community submissions belong to a team's page. A topic has no team to ask.
-		return []
-
 	def stats(self) -> list[dict]:
 		events = self.upcoming_events
 		if not events:
