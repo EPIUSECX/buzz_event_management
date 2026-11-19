@@ -14,11 +14,12 @@ from buzz.api.booking import (
 from buzz.api.booking.downloads import inlined_qr
 from buzz.api.booking.exceptions import InvoiceUnavailable
 from buzz.api.booking.services import get_booking_access_token, verify_booking_access_token
-from buzz.tests.base_test_cases import BookingTestCase, make_payment_gateway
+from buzz.tests.base_test_cases import BookingTestCase
 from buzz.tests.factories import (
 	EventBookingFactory,
 	EventPaymentFactory,
 	EventTicketTypeFactory,
+	PaymentGatewayFactory,
 )
 
 BUYER_INVOICE_DETAILS = {"tax_id": "29BBBBB1111B1Z6", "business_name": "Globex Corporation"}
@@ -79,7 +80,7 @@ class TestBookingConfirmation(BookingTestCase):
 
 	def test_confirmation_names_the_gateway_an_online_payment_went_through(self):
 		booking = self.create_submitted_booking()
-		gateway = make_payment_gateway()
+		gateway = PaymentGatewayFactory.create().name
 		EventPaymentFactory.create(
 			"received",
 			reference_doctype="Event Booking",

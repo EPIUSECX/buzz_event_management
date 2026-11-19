@@ -125,9 +125,12 @@ async function syncRefunds(frm) {
 	const { message } = await frm.call("sync_refunds")
 
 	frappe.show_alert({
-		message: message.pending
-			? __("{0} refund(s) are still waiting on the payment provider.", [message.pending])
-			: __("Every refund on this booking is settled."),
+		message: message.refunds
+			? __("Razorpay has {0} refund(s) on this payment, {1} new here.", [
+					message.refunds,
+					message.created,
+				])
+			: __("Razorpay has no refunds on this payment."),
 		indicator: "blue",
 	})
 
@@ -142,7 +145,7 @@ async function showRefundDialog(frm) {
 	if (refundable <= 0) {
 		frappe.msgprint({
 			title: __("Nothing Left to Refund"),
-			message: __("This booking is already refunded in full, or waiting on the payment provider."),
+			message: __("Every rupee on this booking is already refunded or waiting on the gateway."),
 			indicator: "orange",
 		})
 		return
@@ -197,21 +200,20 @@ async function showRefundDialog(frm) {
 			frappe.confirm(question, async () => {
 				dialog.hide()
 				frappe.show_alert({
-					message: __("Sending the refund to the payment provider..."),
+					message: __("Sending the refund to Razorpay..."),
 					indicator: "blue",
 				})
 
-				const { message: refundStatus } = await frm.call("refund", { amount, tickets: selected })
+				await frm.call("refund", { amount, tickets: selected })
 
-				let message = __("Refund initiated. The payment provider confirms it separately.")
-				if (refundStatus === "Processed") {
-					message = __("Refund settled.")
-				} else if (selected.length) {
-					message = __(
-						"Refund initiated. The tickets are cancelled once the payment provider confirms it.",
-					)
-				}
-				frappe.show_alert({ message, indicator: "green" })
+				frappe.show_alert({
+					message: selected.length
+						? __(
+								"Refund initiated. Razorpay confirms it separately, and the tickets are queued for cancellation review.",
+							)
+						: __("Refund initiated. Razorpay confirms it separately."),
+					indicator: "green",
+				})
 				frm.reload_doc()
 			})
 		},

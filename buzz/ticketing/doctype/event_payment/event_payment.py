@@ -19,7 +19,6 @@ class EventPayment(Document):
 		name: DF.Int | None
 		order_id: DF.Data | None
 		payment_gateway: DF.Link | None
-		payment_request: DF.Link | None
 		payment_id: DF.Data | None
 		payment_received: DF.Check
 		reference_docname: DF.DynamicLink | None

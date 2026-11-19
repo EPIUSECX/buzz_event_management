@@ -8,7 +8,7 @@ app_license = "agpl-3.0"
 # Apps
 # ------------------
 
-required_apps = ["bwhtech/bwh_payments"]
+required_apps = ["frappe/payments"]
 
 export_python_type_annotations = True
 
@@ -114,6 +114,12 @@ scheduler_events = {
 # -------
 
 before_tests = "buzz.install.before_tests"
+
+# Payments
+# --------
+
+# Fired by the payments app when a gateway settles a refund.
+handle_refund_notification = "buzz.payments.handle_refund_notification"
 
 
 doc_events = {

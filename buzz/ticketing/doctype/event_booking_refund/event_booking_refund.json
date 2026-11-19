@@ -10,7 +10,6 @@
   "booking",
   "payment",
   "column_break_refund",
-  "gateway_refund",
   "refund_id",
   "status",
   "amounts_section",
@@ -42,14 +41,6 @@
   {
    "fieldname": "column_break_refund",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "gateway_refund",
-   "fieldtype": "Link",
-   "label": "Gateway Refund",
-   "options": "Gateway Refund",
-   "read_only": 1,
-   "unique": 1
   },
   {
    "description": "Identifier the payment gateway gave this refund.",

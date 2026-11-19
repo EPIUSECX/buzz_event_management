@@ -14,7 +14,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Payment Gateway",
-   "options": "Payment Gateway Profile",
+   "options": "Payment Gateway",
    "reqd": 1
   }
  ],
