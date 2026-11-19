@@ -63,4 +63,3 @@ indent-style = "tab"
 
 [tool.bench.frappe-dependencies]
 frappe = ">=16.0.0,<18.0.0"
-payments = ">=16.0.0,<18.0.0"
