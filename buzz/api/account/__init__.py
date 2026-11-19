@@ -5,6 +5,7 @@ from buzz.api.account.exceptions import UnknownLanguage, UnknownTimezone
 from buzz.api.account.schemas import GuestInfoResponse, LanguageOption, UserInfoResponse
 from buzz.api.account.services import accepted_timezones, get_request_language
 from buzz.api.branding.services import can_manage as can_manage_branding
+from buzz.api.onboarding.services import needs_onboarding
 from buzz.www.site_header import SiteHeader
 
 
@@ -37,6 +38,7 @@ def get_user_info() -> UserInfoResponse | GuestInfoResponse:
 		navbar=header.navbar(),
 		language=user.language,
 		time_zone=user.time_zone,
+		needs_onboarding=needs_onboarding(user.name),
 	)
 
 

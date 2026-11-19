@@ -10,7 +10,7 @@ from buzz.api.booking.exceptions import (
 	TicketsUnavailable,
 	TooManyTicketsHeld,
 )
-from buzz.tests.base_test_cases import BookingTestCase
+from buzz.tests.base_test_cases import BookingTestCase, authorize_payment
 from buzz.tests.factories import (
 	BuzzCouponCodeFactory,
 	BuzzEventFactory,
@@ -97,6 +97,16 @@ class TestHoldTickets(HoldTestCase):
 		self.assertEqual(response.remaining, {})
 		self.assertIsNone(response.expires_in_seconds)
 		self.assertEqual(self.holds_of(response.hold_token), 0)
+
+	def test_names_a_ticket_type_that_joins_the_waitlist_for_the_picked_quantity(self):
+		self.ticket_type.db_set("enable_waitlist", 1)
+		self.held_by_others(9)
+
+		self.assertEqual(self.hold(1).waitlisted, [])
+		response = self.hold(2)
+
+		self.assertEqual(response.waitlisted, [self.name])
+		self.assertEqual(response.remaining, {})
 
 	def test_refuses_another_events_ticket_type(self):
 		other = EventTicketTypeFactory.create(event=BuzzEventFactory.create().name, max_tickets_available=5)
@@ -247,7 +257,7 @@ class TestDraftBookingHold(HoldTestCase):
 	def test_a_payment_turns_the_hold_into_tickets(self):
 		booking = self.draft(2)
 
-		booking.on_payment_authorized("Completed")
+		authorize_payment(booking)
 
 		self.assertEqual(self.holds_of(booking.hold_token), 0)
 		self.assertEqual(self.ticket_type.remaining_tickets, 8)

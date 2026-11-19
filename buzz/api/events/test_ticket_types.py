@@ -13,9 +13,9 @@ from buzz.tests.factories import (
 	EventTicketCategoryFactory,
 	EventTicketTypeFactory,
 	PaymentGatewayFactory,
+	TicketAddOnFactory,
 	UserFactory,
 )
-from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import PAID_EVENTS_FLAG
 
 
 class TicketTypesTestCase(IntegrationTestCase):
@@ -89,13 +89,39 @@ class TestGetEventTicketTypes(TicketTypesTestCase):
 		self.assertEqual([row["name"] for row in payload["categories"]], [early.name, late.name])
 		self.assertEqual(self.ticket_type_row(payload)["category"], early.name)
 
-	def test_reports_whether_the_team_can_sell_paid_tickets(self):
-		self.assertTrue(self.payload_as(self.owner)["paid_events_enabled"])
+	def test_lists_every_add_on_with_its_scope(self):
+		TicketAddOnFactory.create(
+			event=self.event,
+			title="T-shirt",
+			price=299,
+			user_selects_option=1,
+			options="S\nM",
+			ticket_types=[{"ticket_type": self.ticket_type}],
+		)
+		TicketAddOnFactory.create(event=self.event, title="Parking", enabled=0)
 
-		# The team is shared by the class, and rollback is per class.
-		self.addCleanup(BuzzTeamFactory.set_settings, self.team, {PAID_EVENTS_FLAG: 1})
-		BuzzTeamFactory.set_settings(self.team, {PAID_EVENTS_FLAG: 0})
-		self.assertFalse(self.payload_as(self.owner)["paid_events_enabled"])
+		add_ons = self.payload_as(self.owner)["add_ons"]
+
+		self.assertEqual([row["title"] for row in add_ons], ["Parking", "T-shirt"])
+		parking, shirt = add_ons
+		self.assertEqual(
+			set(shirt),
+			{
+				"name",
+				"title",
+				"description",
+				"price",
+				"currency",
+				"enabled",
+				"user_selects_option",
+				"options",
+				"ticket_types",
+			},
+		)
+		self.assertEqual(
+			(shirt["price"], shirt["options"], shirt["ticket_types"]), (299, ["S", "M"], [self.ticket_type])
+		)
+		self.assertEqual((parking["enabled"], parking["ticket_types"]), (False, []))
 
 	def test_viewer_reads_without_write_access(self):
 		self.assertFalse(self.payload_as(self.viewer)["can_write"])
@@ -131,11 +157,27 @@ class TestRegistrationRevenue(TicketTypesTestCase):
 
 		self.assertEqual(
 			revenue["INR"],
-			{"currency": "INR", "collected": 2000, "refunded": 0, "bookings": 1, "tickets": 2},
+			{
+				"currency": "INR",
+				"collected": 2000,
+				"refunded": 0,
+				"tax": 0,
+				"discounts": 0,
+				"bookings": 1,
+				"tickets": 2,
+			},
 		)
 		self.assertEqual(
 			revenue["USD"],
-			{"currency": "USD", "collected": 15, "refunded": 0, "bookings": 1, "tickets": 1},
+			{
+				"currency": "USD",
+				"collected": 15,
+				"refunded": 0,
+				"tax": 0,
+				"discounts": 0,
+				"bookings": 1,
+				"tickets": 1,
+			},
 		)
 
 	def test_leaves_out_unpaid_and_free_bookings(self):

@@ -208,9 +208,7 @@ class EventOgImage(OgImage):
 		draw.line([(0, BANNER_HEIGHT), (WIDTH, BANNER_HEIGHT)], fill=self.colours["border"], width=1)
 		brand_width = self.draw_brand(image, draw)
 		self.draw_text(image, WIDTH - 2 * PADDING - brand_width - COLUMN_GAP)
-		output = io.BytesIO()
-		image.save(output, "PNG", optimize=True)
-		return output.getvalue()
+		return png_bytes(image)
 
 	def banner(self) -> Image.Image:
 		uploaded = self.uploaded_banner()
@@ -261,6 +259,12 @@ class EventOgImage(OgImage):
 		return logo
 
 
+def png_bytes(image: Image.Image) -> bytes:
+	output = io.BytesIO()
+	image.save(output, "PNG", optimize=True)
+	return output.getvalue()
+
+
 def uploaded_image(url: str | None) -> Image.Image | None:
 	"""The picture behind an uploaded file's URL, or one an app ships under /assets.
 
@@ -298,7 +302,9 @@ def delete_files(names: list[str]):
 
 
 def uploaded_content(url: str) -> bytes:
-	return frappe.get_doc("File", {"file_url": url}).get_content()
+	file = frappe.get_doc("File", {"file_url": url})
+	file.check_permission("read")
+	return file.get_content()
 
 
 def asset_content(url: str) -> bytes:

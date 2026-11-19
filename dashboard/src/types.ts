@@ -160,6 +160,7 @@ export interface UserInfo {
 	can_manage_branding?: boolean
 	language?: string | null
 	time_zone?: string | null
+	needs_onboarding?: boolean
 }
 
 export interface EmailAttachment {
@@ -170,7 +171,7 @@ export interface EmailAttachment {
 
 export interface ActivityEntry {
 	name: string
-	kind: "comment" | "email" | "change" | "created"
+	kind: "comment" | "email" | "change" | "created" | "edit"
 	owner: string
 	owner_name: string
 	owner_image: string | null
@@ -183,6 +184,7 @@ export interface ActivityEntry {
 	cc: string[]
 	received: boolean
 	field: string | null
+	fields: string[]
 	old_value: string | null
 	new_value: string | null
 }
@@ -297,6 +299,25 @@ export interface InviteOutcome {
 	full_name?: string | null
 }
 
+// buzz.api.booking.invites.get_invite: what the guest sees behind an invite link.
+export interface GuestInvite {
+	event_title: string
+	start_date: string | null
+	start_time: string | null
+	venue: string | null
+	ticket_type: string
+	status: "Invited" | "Confirmed" | "Rejected"
+	first_name: string | null
+	last_name: string | null
+}
+
+// buzz.api.booking.invites.send_invites and add_guests: one row per new address.
+export interface GuestInviteOutcome {
+	email: string
+	status: "invited" | "added" | "registered" | "already invited"
+	booking: string | null
+}
+
 // buzz.api.events.get_my_events: events the user's teams host, plus events they
 // hold a ticket to. is_host separates the two.
 export interface MyEvent {
@@ -311,6 +332,7 @@ export interface MyEvent {
 	medium: string | null
 	banner_image: string | null
 	allow_editing_talks_after_acceptance: boolean
+	is_published?: boolean
 	is_host: boolean
 	is_attendee: boolean
 	team: string | null
@@ -343,6 +365,27 @@ export interface BookingSummary {
 	tax_label: string | null
 	tax_percentage: number
 	total_amount: number
+}
+
+/** buzz.api.booking.get_booking_details, narrowed to what the booker's receipt acts on. */
+export interface BookingDetails {
+	doc: { name: string; status: string; docstatus: number }
+	tickets: DashboardTicket[]
+	event: { free_event: boolean }
+	can_request_cancellation: boolean
+	cancellation_request: { cancel_full_booking: boolean; creation: string } | null
+	cancellation_requested_tickets: string[]
+	cancelled_tickets: string[]
+	invoice_available: boolean
+}
+
+/** An Event Booking row the session user made, for the event drawer. */
+export interface MyBooking {
+	name: string
+	status: string
+	docstatus: number
+	payment_method: string | null
+	request_type: "Approval" | "Waitlist" | "" | null
 }
 
 /** buzz.api.teams.get_team_events: a calendar row, the team's own or one its community approved. */
@@ -543,6 +586,9 @@ export interface TicketDetails {
 		currency: string
 	} | null
 	ticket_type: { title: string }
+	can_transfer_ticket: boolean
+	can_change_add_ons: boolean
+	zoom_join_url: string | null
 }
 
 export interface TicketAddOnDetail {
@@ -551,6 +597,9 @@ export interface TicketAddOnDetail {
 	value: string | null
 	price: number | null
 	currency: string | null
+	user_selects_option: boolean
+	// The event's choices for an add-on the attendee picks an option of.
+	options: string[]
 }
 
 // Languages served by the translation API (not a Buzz DocType).
@@ -590,6 +639,8 @@ export interface AvailableTicketType {
 	prices?: { currency: string; price: number }[]
 	price_note?: string
 	category?: string | null
+	needs_approval?: boolean
+	waitlisted?: boolean
 }
 
 // buzz.api.booking.hold_tickets
@@ -597,6 +648,7 @@ export interface TicketHold {
 	hold_token: string
 	expires_in_seconds: number | null
 	remaining: Record<string, number>
+	waitlisted: string[]
 }
 
 // buzz.api.booking.get_event_booking_data: categories that hold an available ticket type.
@@ -616,6 +668,8 @@ export interface AvailableAddOn {
 	price_note?: string
 	options?: string[]
 	user_selects_option?: 0 | 1 | boolean
+	// Event Ticket Type names it is offered with; empty means all.
+	ticket_types?: string[]
 }
 
 export interface AttendeeAddOnSelection {
@@ -769,6 +823,33 @@ export interface EnquiryDetail {
 	answers: EnquiryAnswer[]
 }
 
+// buzz.api.sponsorships.get_user_sponsorship_inquiries: one of the user's own enquiries.
+export interface SponsorshipListItem {
+	name: string
+	company_name: string
+	// The confirmed sponsor's logo once there is one, the enquiry's until then.
+	company_logo: string | null
+	event: string
+	// Joined over the event link, so a deleted event leaves them empty.
+	event_title: string | null
+	start_date: string | null
+	start_time: string | null
+	end_date: string | null
+	venue: string | null
+	banner_image: string | null
+	tier: string | null
+	tier_title: string
+	tier_price: number | null
+	tier_currency: string | null
+	status: string
+	creation: string
+	sponsor: string | null
+	has_sponsor: boolean
+}
+
+// An enquiry whose event row still resolves — the only kind the timeline can place.
+export type SponsorshipWithEvent = SponsorshipListItem & { event_title: string; start_date: string }
+
 export interface EventEnquiryItem {
 	name: string
 	company_name: string
@@ -828,6 +909,8 @@ export interface TicketTypeItem {
 	auto_unpublish_after: string | null
 	is_published: boolean
 	is_hidden: boolean
+	requires_approval: boolean
+	enable_waitlist: boolean
 	tickets_sold: number
 	prices: TicketTypePrice[]
 }
@@ -840,6 +923,8 @@ export interface EventTicketTypes {
 	registrations_closed: boolean
 	allow_guest_booking: boolean
 	guest_verification_method: string
+	requires_approval: boolean
+	enable_waitlist: boolean
 	apply_tax: boolean
 	tax_inclusive: boolean
 	tax_label: string
@@ -848,11 +933,24 @@ export interface EventTicketTypes {
 	team_tax_id: string | null
 	has_team_tax_details: boolean
 	can_edit_team: boolean
-	paid_events_enabled: boolean
 	categories: TicketCategoryItem[]
 	ticket_types: TicketTypeItem[]
 	payment_providers: PaymentProviderItem[]
 	revenue: CurrencyRevenue[]
+	add_ons: AddOnItem[]
+}
+
+export interface AddOnItem {
+	name: string
+	title: string
+	description: string | null
+	price: number
+	currency: string
+	enabled: boolean
+	user_selects_option: boolean
+	options: string[]
+	// Event Ticket Type names; empty means all.
+	ticket_types: string[]
 }
 
 export interface CurrencyRevenue {
@@ -879,7 +977,12 @@ export type EventSection =
 export type SectionLevel = "View" | "Edit"
 
 // buzz.api.events.collaborators.get_event_access: null means no access to that section.
-export type EventAccess = Record<EventSection, SectionLevel | null>
+// Transactions is derived from team role and ticketing, not a collaborator level of its own.
+export type EventAccess = Record<EventSection, SectionLevel | null> & {
+	transactions?: SectionLevel | null
+}
+
+export type AccessSection = keyof EventAccess
 
 // A `Buzz Event Collaborator` row; a blank level is no access.
 export type EventCollaborator = {
@@ -929,4 +1032,196 @@ export interface EventCoupons {
 	coupons: CouponItem[]
 	ticket_types: CouponTicketType[]
 	discounted: { currency: string; amount: number }[]
+}
+
+// buzz.api.booking.requests
+export type RequestType = "Approval" | "Waitlist"
+
+export type RequestStatus =
+	| "Requested"
+	| "Waitlisted"
+	| "Payment Pending"
+	| "Rejected"
+	| "Confirmed"
+
+export interface RegistrationRequest {
+	name: string
+	status: RequestStatus
+	request_type: RequestType
+	docstatus: 0 | 1 | 2
+	// Waitlist rank within its ticket type, waiting rows only.
+	position: number | null
+	// Null on a Payment Pending row once the payment window has lapsed.
+	offer_expires_at: string | null
+	buyer_name: string | null
+	buyer_email: string | null
+	total_amount: number
+	currency: string | null
+	requested_at: string
+	attendees: { full_name: string; email: string | null; ticket_type: string }[]
+	answers: { label: string | null; value: string | null }[]
+}
+
+export interface RequestCounts {
+	pending: number
+	waiting: number
+	// Unsold seats by ticket type title, only for ticket types with people waiting.
+	seats_free: Record<string, number>
+}
+
+// buzz.api.booking.process_booking: a registration request is answered without payment.
+export interface RequestResponse {
+	booking_name: string
+	redirect_to: string
+	request_status: "Requested" | "Waitlisted"
+}
+
+// buzz.api.transactions: bookings that took, or are waiting on, money.
+export interface TransactionRow {
+	name: string
+	created_at: string
+	buyer_name: string | null
+	buyer_email: string | null
+	tickets: number
+	total_amount: number
+	currency: string | null
+	payment_method: string | null
+	payment_status: string | null
+	refund_status: string | null
+	payment_id: string | null
+}
+
+export interface TransactionsPage {
+	title: string | null
+	currencies: string[]
+	total: number
+	matched: number
+	transactions: TransactionRow[]
+	has_next_page: boolean
+	filter_fields: FilterField[]
+}
+
+export interface TransactionBuyer {
+	name: string | null
+	email: string | null
+	phone: string | null
+	user: string | null
+	business_name: string | null
+	tax_id: string | null
+	billing_state: string | null
+	billing_address: string | null
+	invoice_requested: boolean
+}
+
+export interface TransactionAmounts {
+	net_amount: number
+	discount_amount: number
+	coupon_code: string | null
+	access_code: string | null
+	tax_label: string | null
+	tax_percentage: number
+	tax_amount: number
+	total_amount: number
+	refunded_amount: number
+	net_received: number
+}
+
+export interface TransactionLineItem {
+	attendee_name: string | null
+	attendee_email: string | null
+	ticket_type: string | null
+	amount: number
+	add_ons: string[]
+	add_on_items: { title: string; price: number }[]
+	add_on_total: number
+}
+
+export interface TransactionPayment {
+	name: string
+	payment_gateway: string | null
+	payment_id: string | null
+	order_id: string | null
+	amount: number
+	currency: string | null
+	payment_received: boolean
+	created_at: string
+}
+
+export interface TransactionRefund {
+	name: string
+	refund_id: string | null
+	amount: number
+	status: string | null
+	created_at: string
+	tickets: string[]
+	cancellation_request: string | null
+}
+
+export interface TransactionTicket {
+	name: string
+	attendee_name: string | null
+	attendee_email: string | null
+	ticket_type: string | null
+	add_ons: string[]
+	checked_in: boolean
+}
+
+// An Additional Field row as saved; its shape follows each event's form.
+export interface TransactionAnswer {
+	fieldname?: string
+	label?: string | null
+	value?: unknown
+	fieldtype?: string | null
+}
+
+export interface TransactionDetail {
+	name: string
+	created_at: string
+	modified_at: string
+	currency: string | null
+	payment_status: string | null
+	refund_status: string | null
+	status: string | null
+	payment_method: string | null
+	offline_payment_method: string | null
+	buyer: TransactionBuyer
+	amounts: TransactionAmounts
+	line_items: TransactionLineItem[]
+	payments: TransactionPayment[]
+	refunds: TransactionRefund[]
+	tickets: TransactionTicket[]
+	utm: { utm_name: string | null; value: string | null }[]
+	answers: TransactionAnswer[]
+}
+
+export interface CurrencySummary {
+	currency: string
+	collected: number
+	refunded: number
+	net: number
+	tax: number
+	discounts: number
+	bookings: number
+	tickets: number
+	average_order_value: number
+}
+
+export interface DailyRevenue {
+	date: string
+	currency: string | null
+	collected: number
+	refunded: number
+	bookings: number
+}
+
+export interface TransactionSummary {
+	currencies: CurrencySummary[]
+	daily: DailyRevenue[]
+	pending_verification: { currency: string | null; bookings: number; amount: number }[]
+	by_payment_method: {
+		currency: string | null
+		payment_method: string | null
+		bookings: number
+		amount: number
+	}[]
 }

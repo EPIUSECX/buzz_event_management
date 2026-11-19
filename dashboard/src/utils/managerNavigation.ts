@@ -1,4 +1,4 @@
-import type { EventAccess, EventSection } from "@/types"
+import type { AccessSection, EventAccess } from "@/types"
 
 export type ManagerNavItem = {
 	label: string
@@ -6,9 +6,14 @@ export type ManagerNavItem = {
 	icon: string
 	to: string
 	startsGroup?: boolean
+	// The sidebar section heading this item sits under.
+	group?: string
 	// The event section that gates this item, and the level it needs.
-	section?: EventSection
+	section?: AccessSection
 	needs?: "Edit"
+	// A count beside the label, and a dot when it needs attention.
+	count?: number
+	dot?: boolean
 }
 
 // /events is a site page outside the dashboard router, so it opens as a full page load.
@@ -36,6 +41,7 @@ type NavigationContext = {
 	hasSponsorships: boolean
 	// The user's level per section of the open event; without it every item shows.
 	access?: EventAccess | null
+	requestCounts?: { pending: number; waiting: number } | null
 }
 
 function rootItems(hasSponsorships: boolean): ManagerNavItem[] {
@@ -61,7 +67,11 @@ function rootItems(hasSponsorships: boolean): ManagerNavItem[] {
 	return items
 }
 
-function eventItems(eventId: string, access?: EventAccess | null): ManagerNavItem[] {
+function eventItems(
+	eventId: string,
+	access?: EventAccess | null,
+	counts?: NavigationContext["requestCounts"],
+): ManagerNavItem[] {
 	const event = `/manage/events/${eventId}`
 	const items: ManagerNavItem[] = [
 		// View opens the details page with its fields locked.
@@ -71,27 +81,91 @@ function eventItems(eventId: string, access?: EventAccess | null): ManagerNavIte
 			icon: "lucide-ticket",
 			to: `${event}/registrations`,
 			section: "ticketing",
+			group: "Ticketing",
+		},
+		{
+			label: "Payments",
+			icon: "lucide-credit-card",
+			to: `${event}/payments`,
+			section: "ticketing",
+			group: "Ticketing",
+		},
+		{
+			label: "Transactions",
+			icon: "lucide-arrow-left-right",
+			to: `${event}/transactions`,
+			section: "transactions",
+			group: "Ticketing",
 		},
 		{
 			label: "Coupons",
 			icon: "lucide-ticket-percent",
 			to: `${event}/coupons`,
 			section: "ticketing",
+			group: "Ticketing",
 		},
-		{ label: "Guests", icon: "lucide-users-round", to: `${event}/guests`, section: "guests" },
-		{ label: "Talks", icon: "lucide-presentation", to: `${event}/talks`, section: "talks" },
-		{ label: "Schedule", icon: "lucide-calendar-days", to: `${event}/schedule`, section: "talks" },
+		{
+			label: "Guests",
+			icon: "lucide-users-round",
+			to: `${event}/guests`,
+			section: "guests",
+			group: "Attendees",
+		},
+		{
+			label: "Approvals",
+			icon: "lucide-user-check",
+			to: `${event}/approvals`,
+			section: "guests",
+			group: "Attendees",
+			needs: "Edit",
+			count: counts?.pending || undefined,
+			dot: Boolean(counts?.pending),
+		},
+		{
+			label: "Waitlist",
+			icon: "lucide-list-ordered",
+			to: `${event}/waitlist`,
+			section: "guests",
+			group: "Attendees",
+			needs: "Edit",
+			count: counts?.waiting || undefined,
+		},
+		// The check-in page is full screen, outside the manager shell.
+		{
+			label: "Check In",
+			icon: "lucide-scan-line",
+			to: `/check-in/${eventId}`,
+			section: "guests",
+			group: "Attendees",
+			needs: "Edit",
+		},
+		{
+			label: "Talks",
+			icon: "lucide-presentation",
+			to: `${event}/talks`,
+			section: "talks",
+			group: "Program",
+		},
+		{
+			label: "Schedule",
+			icon: "lucide-calendar-days",
+			to: `${event}/schedule`,
+			section: "talks",
+			group: "Program",
+		},
 		{
 			label: "Announcements",
 			icon: "lucide-megaphone",
 			to: `${event}/communications`,
 			section: "communications",
+			group: "Outreach",
 		},
 		{
 			label: "Sponsorships",
 			icon: "lucide-handshake",
 			to: `${event}/sponsorships`,
 			section: "sponsors",
+			group: "Outreach",
 		},
 		{
 			label: "Settings",
@@ -125,10 +199,23 @@ function teamItems(teamId: string): ManagerNavItem[] {
 	]
 }
 
+export type ManagerNavGroup = { label?: string; items: ManagerNavItem[] }
+
+/** Runs of adjacent items that share a heading; ungrouped items form unlabelled runs. */
+export function navigationGroups(items: ManagerNavItem[]): ManagerNavGroup[] {
+	const groups: ManagerNavGroup[] = []
+	for (const item of items) {
+		const last = groups.at(-1)
+		if (last && last.label === item.group) last.items.push(item)
+		else groups.push({ label: item.group, items: [item] })
+	}
+	return groups
+}
+
 export function managerNavigation(context: NavigationContext): ManagerNavItem[] {
 	// Creating an event is a page of its own; the shell holds only the way out of it.
 	if (context.creatingEvent) return []
-	if (context.eventId) return eventItems(context.eventId, context.access)
+	if (context.eventId) return eventItems(context.eventId, context.access, context.requestCounts)
 	if (context.teamId) return teamItems(context.teamId)
 	return rootItems(context.hasSponsorships)
 }

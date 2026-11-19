@@ -1,9 +1,10 @@
+import { useEventListener } from "@vueuse/core"
 import { toast, useCall } from "frappe-ui"
 import { computed, ref, type Ref } from "vue"
 import { useRouter } from "vue-router"
 
 import type { FrappeField } from "@/composables/useCustomFields"
-import type { BookingAttendee, OfflineMethod } from "@/types"
+import type { AvailableAddOn, BookingAttendee, OfflineMethod } from "@/types"
 import {
 	type BookingSubmitResponse,
 	resolveBookingSuccessAction,
@@ -11,6 +12,7 @@ import {
 import { clearBookingCache } from "@/utils/index"
 import { serverErrorMessage } from "@/utils/serverError"
 
+import { selectedAddOns } from "./addOnScope"
 import type { useGuestOtp } from "./useGuestOtp"
 
 type Payload = Record<string, any>
@@ -18,6 +20,7 @@ type Payload = Record<string, any>
 interface SubmitInputs {
 	buildPayload: () => Payload
 	total: Ref<number>
+	isRequest: () => boolean
 	gateways: Ref<string[]>
 	selectedGateway: Ref<string | null>
 	offlineMethods: () => OfflineMethod[]
@@ -45,8 +48,16 @@ export function useBookingSubmit(inputs: SubmitInputs) {
 		immediate: false,
 	})
 
+	// Stays true from a successful booking until the next page takes over.
+	const redirecting = ref(false)
+	const placing = computed(() => processBooking.loading || redirecting.value)
+	// Going back from the gateway restores this page from the back-forward cache.
+	useEventListener(window, "pageshow", (event: PageTransitionEvent) => {
+		if (event.persisted) redirecting.value = false
+	})
+
 	function submit() {
-		if (processBooking.loading) return
+		if (placing.value) return
 		const payload = inputs.buildPayload()
 		pendingPayload.value = payload
 		if (inputs.isGuest() && inputs.needsOtp()) otp.send()
@@ -62,7 +73,7 @@ export function useBookingSubmit(inputs: SubmitInputs) {
 	}
 
 	function pay(payload: Payload, isOtpFlow = false) {
-		const paid = inputs.total.value > 0
+		const paid = inputs.total.value > 0 && !inputs.isRequest()
 		const gateway = paid ? inputs.selectedGateway.value : (inputs.gateways.value[0] ?? null)
 		const method = paid ? inputs.offlineMethods().find((m) => m.title === gateway) : undefined
 		if (method) {
@@ -102,9 +113,13 @@ export function useBookingSubmit(inputs: SubmitInputs) {
 		if (isOtpFlow) otp.reset()
 
 		const action = resolveBookingSuccessAction(data, { isGuestMode: inputs.isGuest() })
-		if (action.type === "external") window.location.href = action.url
-		else if (action.type === "route") router.replace(action.path)
-		else
+		if (action.type === "external") {
+			redirecting.value = true
+			window.location.href = action.url
+		} else if (action.type === "route") {
+			redirecting.value = true
+			router.replace(action.path).finally(() => (redirecting.value = false))
+		} else
 			completed.value = {
 				bookingName: action.bookingName,
 				pendingVerification: action.pendingVerification,
@@ -123,7 +138,7 @@ export function useBookingSubmit(inputs: SubmitInputs) {
 		offlineMethod,
 		showOfflineDialog,
 		completed,
-		placing: computed(() => processBooking.loading),
+		placing,
 	}
 }
 
@@ -138,11 +153,16 @@ export function cleanCustomFields(values: Record<string, any> | undefined, field
 	return Object.keys(cleaned).length ? cleaned : null
 }
 
-export function attendeePayload(attendee: BookingAttendee, ticketCustomFields: FrappeField[]) {
+export function attendeePayload(
+	attendee: BookingAttendee,
+	ticketCustomFields: FrappeField[],
+	addOnsMap: Record<string, AvailableAddOn>,
+) {
 	const { is_me: _isMe, ...clean } = JSON.parse(JSON.stringify(attendee))
-	clean.add_ons = Object.entries(clean.add_ons ?? {})
-		.filter(([, state]: [string, any]) => state.selected)
-		.map(([addOn, state]: [string, any]) => ({ add_on: addOn, value: state.option || true }))
+	clean.add_ons = selectedAddOns(attendee, addOnsMap).map(([addOn, selection]) => ({
+		add_on: addOn.name,
+		value: selection.option || true,
+	}))
 	clean.custom_fields = cleanCustomFields(clean.custom_fields, ticketCustomFields)
 	return clean
 }

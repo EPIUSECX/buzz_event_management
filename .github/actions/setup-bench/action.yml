@@ -59,27 +59,18 @@ runs:
           **/pyproject.toml
           **/requirements*.txt
 
-    - name: Install system deps and bench
+    # Cached .debs instead of a live apt install: the Azure apt mirror can stall for minutes.
+    - name: Install the MariaDB client
+      uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+      with:
+        packages: mariadb-client
+
+    - name: Install bench
       shell: bash -e {0}
       run: |
-        install_db_client() {
-          # `apt-get update` is most of the cost, so only pay for it if the
-          # runner's package lists are too stale to resolve.
-          sudo apt-get -qq install -y --no-install-recommends mariadb-client \
-            || { sudo apt-get -qq update \
-                 && sudo apt-get -qq install -y --no-install-recommends mariadb-client; }
-        }
-
-        # apt and uv share no inputs.
-        install_db_client &> "${RUNNER_TEMP}/apt.log" &
-        apt_pid=$!
-
+        # The cache restores files without running ldconfig.
+        sudo ldconfig
         uv tool install frappe-bench
-
-        if ! wait "$apt_pid"; then
-          cat "${RUNNER_TEMP}/apt.log"
-          exit 1
-        fi
 
     - name: Init bench
       shell: bash -e {0}
@@ -130,6 +121,31 @@ runs:
 
         bench get-app --skip-assets buzz "$GITHUB_WORKSPACE"
 
+    - name: Key the other apps' assets
+      id: assets-key
+      if: inputs.build-assets == 'true'
+      shell: bash -e {0}
+      working-directory: /home/runner/frappe-bench/apps
+      run: |
+        # Every app but buzz is checked out at a fixed commit, so its built assets
+        # stay the same until that commit moves.
+        for app in */; do
+          [ "$app" == "buzz/" ] || echo "$app $(git -C "$app" rev-parse HEAD)"
+        done > "${RUNNER_TEMP}/app-commits.txt"
+        echo "key=assets-$(sha256sum "${RUNNER_TEMP}/app-commits.txt" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the other apps' assets
+      id: assets-cache
+      if: inputs.build-assets == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          /home/runner/frappe-bench/apps/*/*/public/dist
+          !/home/runner/frappe-bench/apps/buzz/**
+          /home/runner/frappe-bench/sites/assets/assets.json
+          /home/runner/frappe-bench/sites/assets/assets-rtl.json
+        key: ${{ steps.assets-key.outputs.key }}
+
     - name: Install requirements
       shell: bash -e {0}
       working-directory: /home/runner/frappe-bench
@@ -152,13 +168,15 @@ runs:
       working-directory: /home/runner/frappe-bench
       env:
         BUILD_ASSETS: ${{ inputs.build-assets }}
+        # On a cache hit only buzz is built; the build overwrites its entries in assets.json.
+        BUILD_APP: ${{ steps.assets-cache.outputs.cache-hit == 'true' && 'buzz' || '' }}
         EXTRA_APP_URL: ${{ inputs.extra-app-url }}
         SITE: ${{ inputs.site-name }}
       run: |
         # The build is CPU-bound and the site is DB-bound; they share no state.
         build_pid=""
         if [ "$BUILD_ASSETS" == "true" ]; then
-          CI=Yes bench build &> "${RUNNER_TEMP}/build.log" &
+          CI=Yes bench build ${BUILD_APP:+--app "$BUILD_APP"} &> "${RUNNER_TEMP}/build.log" &
           build_pid=$!
         fi
 

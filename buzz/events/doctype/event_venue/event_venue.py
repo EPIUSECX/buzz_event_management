@@ -7,12 +7,9 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from buzz.events.doctype.buzz_team_settings.buzz_team_settings import is_feature_enabled
 from buzz.events.doctype.event_venue.geocode import enqueue_geocode, needs_geocoding
 from buzz.events.doctype.event_venue.map_link import read_map_link
 from buzz.www.event.venue_map import google_maps_url
-
-MULTIPLE_LOCATIONS_FLAG = "feature_multiple_locations"
 
 # A venue with multiple locations keeps where it is only in its locations.
 GROUP_CLEARED_FIELDS = (
@@ -56,7 +53,6 @@ class EventVenue(Document):
 
 	def validate(self):
 		if self.has_multiple_locations:
-			self.validate_multiple_locations_enabled()
 			self.set_up_as_group()
 			return
 		self.locations = []
@@ -85,13 +81,6 @@ class EventVenue(Document):
 		for group in set(groups):
 			frappe.get_doc("Event Venue", group).save(ignore_permissions=True)
 
-	def validate_multiple_locations_enabled(self):
-		before = self.get_doc_before_save()
-		if not self.team or (before and before.has_multiple_locations):
-			return
-		if not is_feature_enabled(self.team, MULTIPLE_LOCATIONS_FLAG):
-			frappe.throw(_("Multiple locations are not enabled for this team. Contact your administrator."))
-
 	def set_up_as_group(self):
 		venues = [row.venue for row in self.locations if row.venue]
 		found = {
@@ -103,7 +92,7 @@ class EventVenue(Document):
 			)
 		}
 		self.validate_locations(venues, found)
-		self.venue_name = " · ".join(found[venue].venue_name for venue in venues)
+		self.venue_name = group_venue_name([found[venue].venue_name for venue in venues])
 		self.clear_location_fields()
 
 	def validate_locations(self, venues: list[str], found: dict) -> None:
@@ -171,6 +160,11 @@ class EventVenue(Document):
 				],
 			}
 			self.location = frappe.as_json(self.location)
+
+
+def group_venue_name(location_names: list[str]) -> str:
+	"""Short enough for one line and the field's 140 characters; the event page lists them all."""
+	return f"{location_names[0]} +{len(location_names) - 1}"
 
 
 def set_venue_names(rows: list) -> None:

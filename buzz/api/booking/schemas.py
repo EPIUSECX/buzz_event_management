@@ -6,6 +6,9 @@ from pydantic import Field
 from buzz.api.schemas import APIRequest, APIResponse
 from buzz.events.doctype.event_venue.details import VenueDetails
 
+# One network can hold this many tickets at a time, so a script can't hold a whole event.
+MAX_TICKETS_PER_IP = 20
+
 
 class BookingRequest(APIRequest):
 	# attendees and custom fields carry event-defined dynamic keys; validated against meta downstream.
@@ -40,11 +43,19 @@ class TicketHoldResponse(APIResponse):
 	expires_in_seconds: int | None
 	# Tickets this hold can still have, by ticket type. Ticket types without a limit are left out.
 	remaining: dict[str, int]
+	# Ticket types the picked quantity can't get, so the booking joins their waitlist.
+	waitlisted: list[str]
 
 
 class FreeBookingResponse(APIResponse):
 	booking_name: str
 	redirect_to: str
+
+
+class RequestResponse(APIResponse):
+	booking_name: str
+	redirect_to: str
+	request_status: str
 
 
 class OfflineBookingResponse(APIResponse):
@@ -117,6 +128,7 @@ class ConfirmationBooking(APIResponse):
 	coupon_code: str | None
 	payment_method: str | None
 	booked_on: datetime
+	invoice_available: bool = False
 
 
 class ConfirmationTicket(APIResponse):
@@ -149,6 +161,7 @@ class BookingDetailsResponse(APIResponse):
 	cancellation_request: Any
 	cancellation_requested_tickets: list[str]
 	cancelled_tickets: list[str]
+	invoice_available: bool
 
 
 class DiscountQuoteRequest(APIRequest):
@@ -203,16 +216,87 @@ class BookingSummary(APIResponse):
 	total_amount: float
 
 
-class MyBooking(APIResponse):
+class RequestAttendee(APIResponse):
+	full_name: str
+	email: str | None
+	ticket_type: str
+
+
+class RequestAnswer(APIResponse):
+	label: str | None
+	value: str | None
+
+
+class RegistrationRequestRow(APIResponse):
 	name: str
-	event: str | None
-	event_title: str | None
-	start_date: date | None
-	venue: str | None
+	status: str
+	request_type: str | None
 	docstatus: int
+	# Waitlist rank within its ticket type, counting waiting entries only.
+	position: int | None
+	# When the payment offer lapses; None on a Payment Pending row means it has.
+	offer_expires_at: datetime | None
+	buyer_name: str | None
+	buyer_email: str | None
 	total_amount: float
 	currency: str | None
-	creation: datetime
-	status: str | None
-	# Only counted by the list; each row is a plain ticket_type pair.
-	attendees: list
+	requested_at: datetime
+	attendees: list[RequestAttendee]
+	answers: list[RequestAnswer]
+
+
+class RequestCounts(APIResponse):
+	pending: int
+	waiting: int
+	# Unsold seats on ticket types that have people waiting, by ticket type title.
+	seats_free: dict[str, int]
+
+
+class InviteRequest(APIRequest):
+	email: str
+	ticket_type: str
+	first_name: str | None = None
+	last_name: str | None = None
+
+
+class InviteOutcome(APIResponse):
+	email: str
+	# "invited", "added", or why the row was skipped.
+	status: str
+	booking: str | None = None
+
+
+class InviteDetails(APIResponse):
+	event_title: str
+	start_date: date | None
+	start_time: timedelta | None
+	venue: str | None
+	ticket_type: str
+	status: str
+	first_name: str | None
+	last_name: str | None
+
+
+class InviteSheetRow(APIResponse):
+	first_name: str
+	last_name: str
+	email: str
+	# The tier as written in the sheet; the dialog maps it onto the event's ticket types.
+	tier: str
+
+
+class MyBooking(APIResponse):
+	name: str
+	event: str
+	event_title: str | None = None
+	event_start_date: date | None = None
+	status: str | None = None
+	payment_status: str | None = None
+	# 0 while being paid for, 1 confirmed, 2 cancelled.
+	docstatus: int
+	booked_at: datetime
+
+
+class MyBookingsPage(APIResponse):
+	bookings: list[MyBooking]
+	has_next_page: bool

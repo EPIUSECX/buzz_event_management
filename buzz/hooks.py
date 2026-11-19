@@ -23,7 +23,7 @@ before_uninstall = "buzz.uninstall.before_uninstall"
 website_route_rules = [
 	{"from_route": "/events/<event_route>/schedule", "to_route": "event/schedule"},
 	{"from_route": "/events/<event_route>", "to_route": "event"},
-	{"from_route": "/u/<username>", "to_route": "user_profile"},
+	{"from_route": "/@<username>", "to_route": "user_profile"},
 	{"from_route": "/b", "to_route": "dashboard"},
 	{"from_route": "/b/<path:app_path>", "to_route": "dashboard"},
 ]
@@ -51,9 +51,47 @@ website_redirects = [
 		"target": r"/events/\1",
 		"forward_query_parameters": True,
 	},
+	# Profiles moved from /u/<username> to /@<username>.
+	{"source": r"/u/([^/]+)", "target": r"/@\1", "forward_query_parameters": True},
 	# Bare /dashboard has no trailing slash for the catch-all above to match, and
 	# www/dashboard.html would otherwise serve the SPA shell under the wrong base.
 	{"source": r"/dashboard", "target": "/b", "forward_query_parameters": True},
+	# /b/account was folded into /b/manage; an id in the old path opens its drawer there.
+	{
+		"source": r"/b/account/proposals/([^/]+)",
+		"target": r"/b/manage/proposals?proposal=\1",
+		"forward_query_parameters": True,
+	},
+	{
+		"source": r"/b/account/proposals",
+		"target": r"/b/manage/proposals",
+		"forward_query_parameters": True,
+	},
+	{
+		"source": r"/b/account/sponsorships/([^/]+)",
+		"target": r"/b/manage/sponsorship?enquiry=\1",
+		"forward_query_parameters": True,
+	},
+	{
+		"source": r"/b/account/sponsorships",
+		"target": r"/b/manage/sponsorship",
+		"forward_query_parameters": True,
+	},
+	{
+		"source": r"/b/account/tickets/([^/]+)",
+		"target": r"/b/manage/events?ticket=\1",
+		"forward_query_parameters": True,
+	},
+	{
+		"source": r"/b/account/bookings/([^/]+)",
+		"target": r"/b/manage/events?booking=\1",
+		"forward_query_parameters": True,
+	},
+	{
+		"source": r"/b/account(/.*)?",
+		"target": r"/b/manage/events",
+		"forward_query_parameters": True,
+	},
 ]
 
 # Scheduled Tasks
@@ -89,8 +127,12 @@ doc_events = {
 		"after_insert": [
 			"buzz.utils.add_buzz_user_role",
 			"buzz.events.doctype.buzz_team.buzz_team.create_personal_team_on_signup",
+			"buzz.api.onboarding.services.mark_pending_on_signup",
 		],
-		"on_update": "buzz.events.doctype.speaker_profile.speaker_profile.update_speaker_display_name",
+		"on_update": [
+			"buzz.events.doctype.speaker_profile.speaker_profile.update_speaker_display_name",
+			"buzz.events.profile_og_image.enqueue_for_user",
+		],
 	},
 	"Currency": {
 		"on_update": "buzz.api.payments.currencies.clear_currency_cache",
@@ -117,12 +159,13 @@ for _doctype in taggable_doctypes:
 		"buzz.events.doctype.buzz_tag.buzz_tag.delete_tag_links"
 	)
 
-commentable_doctypes = ["Talk Proposal"]
+commentable_doctypes = ["Talk Proposal", "Event Booking"]
 for _doctype in commentable_doctypes:
 	doc_events.setdefault(_doctype, {}).setdefault("on_trash", []).append(
 		"buzz.subscriptions.delete_record_subscriptions"
 	)
 doc_events["Communication"] = {"after_insert": "buzz.comments.notify_team_of_email"}
+doc_events["OAuth Client"] = {"before_validate": "buzz.mcp.token_scope.open_to_every_user"}
 doc_events["Email Queue"] = {"after_insert": "buzz.playground.inbox.capture_email"}
 doc_events.setdefault("Buzz Team", {})["after_insert"] = "buzz.playground.demo_data.seed_community_requests"
 extend_doctype_class = {"Comment": ["buzz.comments.TeamComment"]}
@@ -314,6 +357,7 @@ permission_query_conditions = {
 standard_queries = {"Buzz Team": "buzz.permissions.team_link_query"}
 
 has_permission = {
+	"Comment": "buzz.comments.team_note_has_permission",
 	"Buzz Form": "buzz.permissions.derived_has_permission",
 	"Buzz Event": "buzz.permissions.team_has_permission",
 	"Buzz Campaign": "buzz.permissions.team_has_permission",
@@ -422,9 +466,7 @@ after_request = ["buzz.playground.add_noindex_header"]
 # Authentication and authorization
 # --------------------------------
 
-# auth_hooks = [
-# 	"events.auth.validate"
-# ]
+auth_hooks = ["buzz.mcp.token_scope.confine_mcp_tokens"]
 
 # Automatically update python controller files with type annotations for this app.
 

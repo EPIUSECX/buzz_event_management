@@ -2,12 +2,12 @@ from datetime import datetime
 
 import frappe
 from frappe import _
-from frappe.query_builder import Case
+from frappe.query_builder import Case, Criterion
 from frappe.query_builder.functions import Count, Date
 from frappe.utils import add_days, getdate
 
 from buzz.api.booking.guests import email_otp_available, phone_otp_available
-from buzz.api.booking.services import are_registrations_closed
+from buzz.api.booking.services import OFFLINE_PAYMENT_METHOD, are_registrations_closed
 from buzz.api.events.exceptions import (
 	CannotCreateEvents,
 	CannotManageEvent,
@@ -76,11 +76,14 @@ def events_for(user: str, filters: MyEventFilters | None = None) -> list[MyEvent
 	team = frappe.qb.DocType("Buzz Team")
 	venue = frappe.qb.DocType("Event Venue")
 
-	hosted = event.name.isin(events_with_section_access(user, "details"))
+	hosted = event.name.isin(event_names(events_with_section_access(user, "details")))
 	ticketed = event.name.isin(
-		frappe.qb.from_(ticket)
-		.select(ticket.event)
-		.where((ticket.attendee_email == user) & (ticket.docstatus == 1))
+		event_names(
+			frappe.qb.from_(ticket)
+			.select(ticket.event)
+			.where((ticket.attendee_email == user) & (ticket.docstatus == 1))
+		)
+		+ event_names(events_booked_by(user))
 	)
 
 	query = (
@@ -101,6 +104,7 @@ def events_for(user: str, filters: MyEventFilters | None = None) -> list[MyEvent
 			venue.venue_name.as_("venue"),
 			event.medium,
 			event.banner_image,
+			event.is_published,
 			event.team,
 			team.team_name,
 			team.logo.as_("team_logo"),
@@ -119,16 +123,45 @@ def events_for(user: str, filters: MyEventFilters | None = None) -> list[MyEvent
 	return [MyEvent(**row | {"name": str(row.name)}) for row in rows]
 
 
+def event_names(query) -> list:
+	"""Run up front: Buzz Event names are integers while links to them are varchar, so as an
+	IN subquery MariaDB re-scans the linked table once per event row. NULL keeps IN valid
+	when nothing matches."""
+	return query.distinct().run(pluck=True) or [None]
+
+
+def events_booked_by(user: str):
+	"""A booking that holds no ticket of the user's still belongs in their feed: one bought for
+	others, one cancelled or rejected, an offline payment still awaiting approval, or a
+	registration request (a draft until the organizer decides)."""
+	booking = frappe.qb.DocType("Event Booking")
+	awaiting_approval = (booking.status == "Approval Pending") & (
+		booking.payment_method == OFFLINE_PAYMENT_METHOD
+	)
+	is_request = booking.request_type.isin(["Approval", "Waitlist"])
+	return (
+		frappe.qb.from_(booking)
+		.select(booking.event)
+		.where((booking.user == user) & ((booking.docstatus != 0) | awaiting_approval | is_request))
+	)
+
+
 def narrow(query, event, hosted, ticketed, filters: MyEventFilters | None):
 	"""Each set field adds one clause; the role reuses the criterions built above."""
-	if not filters:
-		return query
+	filters = filters or MyEventFilters()
+	if not filters.include_archived:
+		query = query.where(event.is_published == 1)
 	if filters.role:
-		query = query.where(hosted if filters.role == "hosting" else ticketed)
+		roles = {"hosting": hosted, "attending": ticketed}
+		query = query.where(Criterion.any([roles[role] for role in filters.role]))
 	if filters.team:
-		query = query.where(event.team == filters.team)
+		query = query.where(event.team.isin(filters.team))
 	if filters.medium:
-		query = query.where(event.medium == filters.medium)
+		query = query.where(event.medium.isin(filters.medium))
+	if search := (filters.search or "").strip():
+		# Typed % and _ are matched as themselves, not as wildcards.
+		escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+		query = query.where(event.title.like(f"%{escaped}%"))
 	return query
 
 
@@ -566,7 +599,7 @@ def titles_of(doctype: str, names: set[str | None]) -> dict[str, str]:
 	return {str(name): title for name, title in rows}
 
 
-def add_ons_by_ticket(tickets: list[str]) -> dict[str, list[GuestAddOn]]:
+def add_ons_by_ticket(tickets: list[str], parenttype: str = "Event Ticket") -> dict[str, list[GuestAddOn]]:
 	"""Add-ons for every ticket at once, rather than a query per row."""
 	if not tickets:
 		return {}
@@ -577,7 +610,7 @@ def add_ons_by_ticket(tickets: list[str]) -> dict[str, list[GuestAddOn]]:
 	rows = (
 		frappe.qb.from_(value)
 		.select(value.parent, value.add_on, value.value)
-		.where((value.parenttype == "Event Ticket") & value.parent.isin(tickets))
+		.where((value.parenttype == parenttype) & value.parent.isin(tickets))
 	).run(as_dict=True)
 	titles = titles_of("Ticket Add-on", {row.add_on for row in rows})
 

@@ -17,13 +17,14 @@
 		"fmt:check": "oxfmt --check"
 	},
 	"dependencies": {
+		"@framework/ui": "link:../../frappe/ui",
 		"@vueuse/core": "^14.4.0",
 		"@vueuse/router": "^14.4.0",
 		"canvas-confetti": "^1.9.3",
 		"cobe": "0.6.5",
 		"dompurify": "3.4.12",
 		"feather-icons": "^4.29.2",
-		"frappe-ui": "1.0.2",
+		"frappe-ui": "1.2.0",
 		"maplibre-gl": "5.23.0",
 		"reka-ui": "^2.10.1",
 		"socket.io-client": "^4.7.2",
@@ -50,7 +51,7 @@
 		"postcss": "^8.4.5",
 		"tailwindcss": "^3.4.15",
 		"typescript": "^5.9.3",
-		"vite": "^8.1.5",
+		"vite": "^8.1.7",
 		"vue-tsc": "^3.3.7"
 	}
 }

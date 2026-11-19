@@ -15,9 +15,11 @@ class MyEventFilters(APIRequest):
 	instead of quietly matching nothing.
 	"""
 
-	role: Literal["hosting", "attending"] | None = None
-	team: str | None = None
-	medium: Literal["In Person", "Online"] | None = None
+	role: list[Literal["hosting", "attending"]] | None = None
+	team: list[str] | None = None
+	medium: list[Literal["In Person", "Online"]] | None = None
+	search: str | None = None
+	include_archived: bool = False
 
 
 class MyEvent(APIResponse):
@@ -31,6 +33,8 @@ class MyEvent(APIResponse):
 	venue: str | None = None
 	medium: str | None = None
 	banner_image: str | None = None
+	# An external calendar row has no Buzz state to archive, so it reads as published.
+	is_published: bool = True
 	is_host: bool
 	is_attendee: bool
 	team: str | None = None
@@ -245,6 +249,8 @@ class TicketTypeItem(APIResponse):
 	auto_unpublish_after: date | None
 	is_published: bool
 	is_hidden: bool
+	requires_approval: bool
+	enable_waitlist: bool
 	tickets_sold: int
 	prices: list[TicketTypePrice]
 
@@ -258,8 +264,22 @@ class CurrencyRevenue(APIResponse):
 	currency: str
 	collected: float
 	refunded: float
+	tax: float = 0
+	discounts: float = 0
 	bookings: int
 	tickets: int
+
+
+class AddOnItem(APIResponse):
+	name: str
+	title: str
+	description: str | None
+	price: float
+	currency: str | None
+	enabled: bool
+	user_selects_option: bool
+	options: list[str]
+	ticket_types: list[str]
 
 
 class EventTicketTypes(APIResponse):
@@ -271,6 +291,8 @@ class EventTicketTypes(APIResponse):
 	registrations_closed: bool
 	allow_guest_booking: bool
 	guest_verification_method: str
+	requires_approval: bool
+	enable_waitlist: bool
 	apply_tax: bool
 	tax_inclusive: bool
 	tax_label: str
@@ -279,9 +301,9 @@ class EventTicketTypes(APIResponse):
 	team_tax_id: str | None
 	has_team_tax_details: bool
 	can_edit_team: bool
-	paid_events_enabled: bool
 	categories: list[TicketCategoryItem]
 	ticket_types: list[TicketTypeItem]
+	add_ons: list[AddOnItem]
 	payment_providers: list[PaymentProviderItem]
 	revenue: list[CurrencyRevenue]
 

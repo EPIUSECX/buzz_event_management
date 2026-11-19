@@ -1,7 +1,7 @@
 import frappe
 from frappe.rate_limiter import rate_limit
 
-from buzz.api.booking import coupons, details, downloads, event_data, guests, my_bookings
+from buzz.api.booking import coupons, details, downloads, event_data, guests
 from buzz.api.booking.holds import TicketHoldService
 from buzz.api.booking.schemas import (
 	BookingConfirmationResponse,
@@ -12,9 +12,9 @@ from buzz.api.booking.schemas import (
 	DiscountQuoteRequest,
 	EventBookingDataResponse,
 	FreeBookingResponse,
-	MyBooking,
 	OfflineBookingResponse,
 	PaymentLinkResponse,
+	RequestResponse,
 	TicketHoldResponse,
 )
 from buzz.api.booking.services import BookingService
@@ -23,6 +23,8 @@ from buzz.ticketing.doctype.ticket_hold import ticket_hold
 
 # nosemgrep: guest-whitelisted-method
 @frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=20, seconds=3600)
+@guests.normalize_identifier_for_limiter
 @rate_limit(key="identifier", limit=5, seconds=3600)
 def send_guest_booking_otp(event: int, identifier: str) -> dict | None:
 	return guests.send_booking_otp(event, identifier)
@@ -44,11 +46,16 @@ def build_data_for_access_code(
 	return event_data.build_event_booking_data(event_route, hold_token, access_code)
 
 
+def process_booking_rate_limit() -> int:
+	return 20 if frappe.session.user == "Guest" else 60
+
+
 # nosemgrep: guest-whitelisted-method
 @frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=process_booking_rate_limit, seconds=600)
 def process_booking(
 	booking: BookingRequest,
-) -> FreeBookingResponse | OfflineBookingResponse | PaymentLinkResponse:
+) -> FreeBookingResponse | OfflineBookingResponse | PaymentLinkResponse | RequestResponse:
 	return BookingService(booking).process()
 
 
@@ -86,14 +93,14 @@ def download_tickets(booking_id: str, token: str | None = None) -> None:
 	downloads.tickets_pdf(booking_id, token)
 
 
+@frappe.whitelist(allow_guest=True)  # nosemgrep: guest-whitelisted-method
+def download_invoice(booking_id: str, token: str | None = None) -> None:
+	downloads.invoice_pdf(booking_id, token)
+
+
 @frappe.whitelist()
 def get_booking_details(booking_id: str) -> BookingDetailsResponse:
 	return details.build_booking_details(booking_id)
-
-
-@frappe.whitelist()
-def get_my_bookings() -> list[MyBooking]:
-	return my_bookings.my_bookings()
 
 
 @frappe.whitelist()

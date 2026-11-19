@@ -48,23 +48,32 @@ test("guest offline booking stays inline but is pending verification", () => {
 	})
 })
 
-test("logged-in offline booking routes to bookings page with offline flag", () => {
+test("logged-in offline booking opens in the event drawer", () => {
 	const action = resolveBookingSuccessAction(
 		{ booking_name: "B-0004", offline_payment: true },
 		{ isGuestMode: false },
 	)
-	assert.deepEqual(action, {
-		type: "route",
-		path: "/bookings/B-0004?success=true&offline=true",
-	})
+	assert.deepEqual(action, { type: "route", path: "/manage/events?booking=B-0004" })
 })
 
-test("logged-in booking with none of the above falls back to bookings page", () => {
+test("logged-in booking with none of the above opens in the event drawer", () => {
 	const action = resolveBookingSuccessAction({ booking_name: "B-0005" }, { isGuestMode: false })
-	assert.deepEqual(action, { type: "route", path: "/bookings/B-0005?success=true" })
+	assert.deepEqual(action, { type: "route", path: "/manage/events?booking=B-0005" })
 })
 
 test("a response with no booking name and no payment link throws", () => {
 	assert.throws(() => resolveBookingSuccessAction({}, { isGuestMode: false }), /booking name/)
 	assert.throws(() => resolveBookingSuccessAction({}, { isGuestMode: true }), /booking name/)
+})
+
+test("a registration request goes to its booking page without payment", () => {
+	const data = {
+		booking_name: "B-0009",
+		redirect_to: "/bookings/B-0009",
+		request_status: "Requested" as const,
+	}
+	assert.deepEqual(resolveBookingSuccessAction(data, { isGuestMode: true }), {
+		type: "route",
+		path: "/bookings/B-0009",
+	})
 })

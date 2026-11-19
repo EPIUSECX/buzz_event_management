@@ -5,6 +5,7 @@ import { computed, ref, watch } from "vue"
 import SponsorshipDrawer from "@/components/dashboard/sponsorships/SponsorshipDrawer.vue"
 import { useEnabledCurrencies } from "@/data/currencies"
 import type { TicketCategoryItem } from "@/types"
+import type { TicketTypeAccess } from "@/utils/approvalMode"
 import { serverErrorMessage } from "@/utils/serverError"
 import {
 	type TicketTypeValues,
@@ -22,7 +23,7 @@ const props = defineProps<{
 	// The category the ticket type is added to; empty for uncategorized.
 	category: string
 	categories: TicketCategoryItem[]
-	paidEventsEnabled: boolean
+	access: TicketTypeAccess
 }>()
 const open = defineModel<boolean>("open", { required: true })
 const emit = defineEmits<{ created: [] }>()
@@ -64,12 +65,7 @@ async function create() {
 
 <template>
 	<SponsorshipDrawer v-model:open="open" title="New ticket type" description="">
-		<TicketTypeFields
-			v-model="draft"
-			:categories="categories"
-			:paid-events-enabled="paidEventsEnabled"
-			hideable
-		/>
+		<TicketTypeFields v-model="draft" :categories="categories" :access="access" hideable />
 
 		<template #footer>
 			<div class="flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-2">

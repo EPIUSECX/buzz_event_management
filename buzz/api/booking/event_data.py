@@ -14,11 +14,14 @@ from buzz.events.doctype.buzz_form.form_types import (
 	form_type,
 )
 from buzz.payments import get_payment_gateways_for_event
+from buzz.permissions import can_add_guests_directly
 from buzz.ticketing.doctype.buzz_coupon_code.buzz_coupon_code import BuzzCouponCode
 from buzz.ticketing.doctype.event_ticket_category.event_ticket_category import get_ordered_categories
+from buzz.ticketing.doctype.ticket_add_on.ticket_add_on import add_on_options
 
 if TYPE_CHECKING:
 	from buzz.events.doctype.buzz_event.buzz_event import BuzzEvent
+	from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import EventTicketType
 
 
 def build_event_booking_data(
@@ -37,11 +40,14 @@ def build_event_booking_data(
 	coupon = BuzzCouponCode.find_available_access_code(event_doc.name, access_code)
 	unlocked = coupon.unlocked_ticket_types() if coupon else set()
 	ticket_types = get_available_ticket_types(event_doc.name, categories, hold_token, unlocked)
+	adds_guests_directly = can_add_guests_directly(event_doc.name, frappe.session.user)
 
 	return EventBookingDataResponse(
 		registrations_closed=are_registrations_closed(event_doc),
 		event_details=get_event_details(event_doc),
-		available_ticket_types=ticket_types,
+		available_ticket_types=[
+			ticket_type_row(row, hold_token, adds_guests_directly) for row in ticket_types
+		],
 		ticket_categories=categories_in_use(categories, ticket_types),
 		available_add_ons=get_available_add_ons(event_doc.name),
 		tax_settings=TaxSettings(
@@ -68,9 +74,6 @@ def access_code_status(access_code: str | None, coupon: BuzzCouponCode | None) -
 
 
 def get_event_details(event_doc: "BuzzEvent"):
-	if frappe.session.user != "Guest":
-		return {**event_doc.as_dict(), "venue_name": event_doc.get_venue_name()}
-
 	return {
 		"name": event_doc.name,
 		"title": event_doc.title,
@@ -92,12 +95,15 @@ def get_event_details(event_doc: "BuzzEvent"):
 		"allow_guest_booking": event_doc.allow_guest_booking,
 		"guest_verification_method": event_doc.guest_verification_method,
 		"default_ticket_type": event_doc.default_ticket_type,
+		"requires_approval": event_doc.requires_approval,
+		"enable_waitlist": event_doc.enable_waitlist,
 	}
 
 
 # Ordered by category, then newest first. Uncategorized ticket types come last. Tickets held by
 # `hold_token` count as available, so a form still lists the ticket type its own hold used up.
-# Hidden ticket types are listed only when `unlocked` names them.
+# Hidden ticket types are listed only when `unlocked` names them. A sold-out ticket type with a
+# waitlist is listed as `waitlisted`.
 def get_available_ticket_types(
 	event_id: str,
 	categories: list[dict] | None = None,
@@ -112,10 +118,27 @@ def get_available_ticket_types(
 		ticket_type_doc = frappe.get_cached_doc("Event Ticket Type", ticket_type)
 		if ticket_type_doc.is_hidden and str(ticket_type) not in (unlocked or set()):
 			continue
-		if ticket_type_doc.are_tickets_available(1, hold_token):
+		if ticket_type_doc.has_waitlist or ticket_type_doc.are_tickets_available(1, hold_token):
 			available_ticket_types.append(ticket_type_doc)
 	position = {category["name"]: index for index, category in enumerate(categories or [])}
 	return sorted(available_ticket_types, key=lambda row: position.get(row.category, len(position)))
+
+
+def ticket_type_row(
+	ticket_type: "EventTicketType", hold_token: str | None, adds_guests_directly: bool = False
+) -> frappe._dict:
+	row = frappe._dict(
+		ticket_type.as_dict(no_nulls=True),
+		needs_approval=ticket_type.needs_approval and not adds_guests_directly,
+		waitlisted=ticket_type.joins_waitlist(1, hold_token),
+	)
+	# The registration page never reads a sales count, and it is the organiser's business.
+	row.pop("tickets_sold", None)
+	row["prices"] = [
+		frappe._dict({key: value for key, value in price.items() if key != "tickets_sold"})
+		for price in row.get("prices") or []
+	]
+	return row
 
 
 def categories_in_use(categories: list[dict], ticket_types: list) -> list[dict]:
@@ -125,11 +148,15 @@ def categories_in_use(categories: list[dict], ticket_types: list) -> list[dict]:
 
 def get_available_add_ons(event_id: str) -> list:
 	add_ons = frappe.db.get_all(
-		"Ticket Add-on", filters={"event": event_id, "enabled": 1}, fields=["*"], order_by="title"
+		"Ticket Add-on",
+		filters={"event": event_id, "enabled": 1},
+		fields=["*", {"ticket_types": ["ticket_type"]}],
+		order_by="title",
 	)
 	for add_on in add_ons:
+		add_on.ticket_types = [str(row.ticket_type) for row in add_on.ticket_types]
 		if add_on.user_selects_option:
-			add_on.options = add_on.options.split("\n")
+			add_on.options = add_on_options(add_on.options)
 	return add_ons
 
 

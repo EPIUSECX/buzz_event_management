@@ -4,56 +4,20 @@ import frappe
 
 from buzz.api.sponsorships import (
 	create_sponsorship_payment_link,
-	get_sponsorship_details,
 	get_user_sponsorship_inquiries,
+	update_sponsorship_logo,
 	withdraw_sponsorship_enquiry,
 )
 from buzz.api.sponsorships.exceptions import (
 	EnquiryAlreadyPaid,
 	EnquiryAlreadyWithdrawn,
-	EnquiryNotAccessible,
+	EnquiryLogoLocked,
+	LogoChangeNotPermitted,
 	PaymentNotPermitted,
 	WithdrawalNotPermitted,
 )
 from buzz.tests.base_test_cases import SponsorshipTestCase
-from buzz.tests.factories import PaymentGatewayFactory
-
-
-class TestGetSponsorshipDetails(SponsorshipTestCase):
-	def test_enquiry_carries_the_tier_title(self):
-		enquiry = get_sponsorship_details(self.enquiry.name).__json__()["enquiry"]
-
-		self.assertEqual(enquiry["name"], self.enquiry.name)
-		self.assertEqual(enquiry["tier_title"], "Gold")
-		self.assertEqual(enquiry["owner"], "Administrator")
-
-	def test_no_sponsor_yet(self):
-		response = get_sponsorship_details(self.enquiry.name).__json__()
-
-		self.assertFalse(response["has_sponsor"])
-		self.assertIsNone(response["sponsor_details"])
-
-	def test_sponsor_details_once_sponsored(self):
-		sponsor = self.make_sponsor()
-		response = get_sponsorship_details(self.enquiry.name).__json__()
-
-		self.assertTrue(response["has_sponsor"])
-		self.assertEqual(
-			set(response["sponsor_details"]),
-			{"name", "company_name", "company_logo", "creation", "event", "tier", "tier_title"},
-		)
-		self.assertEqual(response["sponsor_details"]["name"], sponsor.name)
-		self.assertEqual(response["sponsor_details"]["tier_title"], "Gold")
-
-	def test_stranger_is_refused(self):
-		with self.set_user(self.make_stranger()), self.assertRaises(EnquiryNotAccessible):
-			get_sponsorship_details(self.enquiry.name)
-
-		self.assertEqual(frappe.local.message_log[-1]["title"], "Not Permitted")
-
-	def test_unknown_enquiry_raises_does_not_exist(self):
-		with self.assertRaises(frappe.DoesNotExistError):
-			get_sponsorship_details("no-such-enquiry")
+from buzz.tests.factories import BuzzEventFactory, PaymentGatewayFactory, SponsorshipTierFactory
 
 
 class TestGetUserSponsorshipInquiries(SponsorshipTestCase):
@@ -65,6 +29,20 @@ class TestGetUserSponsorshipInquiries(SponsorshipTestCase):
 		self.make_sponsor()
 
 		self.assertTrue(self.listed_row().has_sponsor)
+
+	def test_row_carries_the_tier_price_and_event_date(self):
+		start_date = frappe.db.get_value("Buzz Event", self.event, "start_date")
+		row = self.listed_row()
+
+		self.assertEqual((row.tier_price, row.tier_currency), (5000, "INR"))
+		self.assertEqual(row.start_date, start_date)
+
+	def test_confirmed_sponsor_logo_replaces_the_enquiry_logo(self):
+		sponsor = self.make_sponsor()
+		frappe.db.set_value("Event Sponsor", sponsor.name, "company_logo", "/files/acme-sponsor.png")
+		row = self.listed_row()
+
+		self.assertEqual((row.sponsor, row.company_logo), (sponsor.name, "/files/acme-sponsor.png"))
 
 	def test_only_own_enquiries_are_listed(self):
 		with self.set_user(self.make_stranger()):
@@ -97,6 +75,14 @@ class TestWithdrawSponsorshipEnquiry(SponsorshipTestCase):
 
 		with self.assertRaises(EnquiryAlreadyPaid):
 			withdraw_sponsorship_enquiry(self.enquiry.name)
+
+	def test_applicant_who_is_not_on_the_team_can_withdraw(self):
+		applicant = self.make_applicant()
+
+		with self.set_user(applicant):
+			withdraw_sponsorship_enquiry(self.enquiry.name)
+
+		self.assertEqual(frappe.db.get_value("Sponsorship Enquiry", self.enquiry.name, "status"), "Withdrawn")
 
 	def test_stranger_cannot_withdraw(self):
 		with self.set_user(self.make_stranger()), self.assertRaises(WithdrawalNotPermitted):
@@ -132,10 +118,70 @@ class TestCreateSponsorshipPaymentLink(SponsorshipTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			create_sponsorship_payment_link(self.enquiry.name, self.tier.name, gateway, currency="EUR")
 
-	def add_gateway_to_event(self) -> str:
+	def test_link_refuses_a_tier_from_another_event(self):
+		other_event = str(BuzzEventFactory.create().name)
+		gateway = self.add_gateway_to_event(other_event)
+		other_event_tier = SponsorshipTierFactory.create(event=other_event)
+
+		with self.assertRaises(frappe.ValidationError):
+			create_sponsorship_payment_link(self.enquiry.name, other_event_tier.name, gateway)
+
+		self.assertEqual(self.saved_tier(), self.tier.name)
+
+	def test_link_refuses_to_repoint_a_paid_enquiry(self):
+		gateway = self.add_gateway_to_event()
+		frappe.db.set_value("Sponsorship Enquiry", self.enquiry.name, "status", "Paid")
+		frappe.clear_document_cache("Sponsorship Enquiry", self.enquiry.name)
+		cheaper_tier = SponsorshipTierFactory.create(
+			event=self.event, title="Silver", prices=[{"currency": "INR", "price": 100}]
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			create_sponsorship_payment_link(self.enquiry.name, cheaper_tier.name, gateway)
+
+		self.assertEqual(self.saved_tier(), self.tier.name)
+
+	def test_link_writes_the_tier_once_it_validates(self):
+		gateway = self.add_gateway_to_event()
+		silver = SponsorshipTierFactory.create(
+			event=self.event, title="Silver", prices=[{"currency": "INR", "price": 100}]
+		)
+
+		with patch("buzz.payments.get_controller", return_value=MagicMock()):
+			create_sponsorship_payment_link(self.enquiry.name, silver.name, gateway)
+
+		self.assertEqual(self.saved_tier(), silver.name)
+
+	def saved_tier(self) -> str:
+		return frappe.db.get_value("Sponsorship Enquiry", self.enquiry.name, "tier")
+
+	def add_gateway_to_event(self, event: str | None = None) -> str:
 		gateway = PaymentGatewayFactory.create().name
-		event = frappe.get_doc("Buzz Event", self.event)
-		event.set("payment_gateways", [{"payment_gateway": gateway}])
-		event.save(ignore_permissions=True)
-		self.addCleanup(frappe.clear_document_cache, "Buzz Event", self.event)
+		event_name = event or self.event
+		event_doc = frappe.get_doc("Buzz Event", event_name)
+		event_doc.set("payment_gateways", [{"payment_gateway": gateway}])
+		event_doc.save(ignore_permissions=True)
+		self.addCleanup(frappe.clear_document_cache, "Buzz Event", event_name)
 		return gateway
+
+
+class TestUpdateSponsorshipLogo(SponsorshipTestCase):
+	def test_applicant_changes_the_logo_on_their_open_enquiry(self):
+		with self.set_user(self.make_applicant()):
+			update_sponsorship_logo(self.enquiry.name, "/files/new-logo.png")
+
+		self.assertEqual(self.saved_logo(), "/files/new-logo.png")
+
+	def test_stranger_cannot_change_the_logo(self):
+		with self.set_user(self.make_stranger()), self.assertRaises(LogoChangeNotPermitted):
+			update_sponsorship_logo(self.enquiry.name, "/files/new-logo.png")
+
+	def test_logo_is_locked_once_the_enquiry_is_paid(self):
+		frappe.db.set_value("Sponsorship Enquiry", self.enquiry.name, "status", "Paid")
+		frappe.clear_document_cache("Sponsorship Enquiry", self.enquiry.name)
+
+		with self.set_user(self.make_applicant()), self.assertRaises(EnquiryLogoLocked):
+			update_sponsorship_logo(self.enquiry.name, "/files/new-logo.png")
+
+	def saved_logo(self) -> str:
+		return frappe.db.get_value("Sponsorship Enquiry", self.enquiry.name, "company_logo")

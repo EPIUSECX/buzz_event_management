@@ -1,5 +1,6 @@
-"""Files a booking's confirmation page hands out: the calendar invite and the tickets."""
+"""Files a booking's confirmation page hands out: the calendar invite, tickets and invoice."""
 
+from contextlib import contextmanager
 from io import BytesIO
 from typing import TYPE_CHECKING
 
@@ -7,6 +8,7 @@ import frappe
 from pypdf import PdfWriter
 
 from buzz.api.booking.details import ensure_confirmation_access
+from buzz.api.booking.exceptions import InvoiceUnavailable
 from buzz.events.online_meeting import OnlineMeeting
 from buzz.utils import generate_ics_file, qr_data_uri
 
@@ -24,27 +26,59 @@ def calendar_invite(booking_id: str, token: str | None) -> None:
 
 def tickets_pdf(booking_id: str, token: str | None) -> None:
 	ensure_confirmation_access(booking_id, token)
+	send_file(f"Tickets-{booking_id}.pdf", booking_tickets_pdf(booking_id))
+
+
+def invoice_pdf(booking_id: str, token: str | None) -> None:
+	ensure_confirmation_access(booking_id, token)
+	send_file(f"Invoice-{booking_id}.pdf", booking_invoice_pdf(booking_id))
+
+
+def ticket_print_format(event: str) -> str:
+	return frappe.db.get_value("Buzz Event", event, "ticket_print_format") or "Standard Ticket"
+
+
+def booking_tickets_pdf(booking_id: str) -> bytes:
+	"""Every submitted ticket of the booking in one PDF."""
 	event = frappe.db.get_value("Event Booking", booking_id, "event")
-	print_format = frappe.db.get_value("Buzz Event", event, "ticket_print_format") or "Standard Ticket"
 	tickets = frappe.db.get_all("Event Ticket", {"booking": booking_id, "docstatus": 1}, pluck="name")
-	send_file(f"Tickets-{booking_id}.pdf", render_tickets(tickets, print_format))
+	return render_tickets(tickets, ticket_print_format(event))
+
+
+def ticket_pdf(ticket_id: str) -> bytes:
+	event = frappe.db.get_value("Event Ticket", ticket_id, "event")
+	return render_tickets([ticket_id], ticket_print_format(event))
+
+
+def booking_invoice_pdf(booking_id: str) -> bytes:
+	booking = frappe.get_doc("Event Booking", booking_id)
+	if not booking.has_invoice():
+		InvoiceUnavailable.throw()
+	with print_permissions_ignored():
+		return frappe.get_print("Event Booking", booking_id, "Booking Invoice", doc=booking, as_pdf=True)
+
+
+@contextmanager
+def print_permissions_ignored():
+	# Access to the booking was checked by the caller; a guest holding only the token has no
+	# permission of their own on the documents for frappe's print check to find.
+	frappe.flags.ignore_print_permissions = True
+	try:
+		yield
+	finally:
+		frappe.flags.ignore_print_permissions = False
 
 
 def render_tickets(tickets: list[str], print_format: str) -> bytes:
-	# Access to the booking was checked above; a guest holding only the token has no
-	# permission of their own on the tickets for frappe's print check to find.
-	frappe.flags.ignore_print_permissions = True
-	try:
-		writer = PdfWriter()
+	writer = PdfWriter()
+	with print_permissions_ignored():
 		for name in tickets:
 			frappe.get_print(
 				"Event Ticket", name, print_format, doc=inlined_qr(name), as_pdf=True, output=writer
 			)
-		buffer = BytesIO()
-		writer.write(buffer)
-		return buffer.getvalue()
-	finally:
-		frappe.flags.ignore_print_permissions = False
+	buffer = BytesIO()
+	writer.write(buffer)
+	return buffer.getvalue()
 
 
 def inlined_qr(name: str) -> "EventTicket":

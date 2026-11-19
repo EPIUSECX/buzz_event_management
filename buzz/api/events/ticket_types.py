@@ -4,6 +4,7 @@ from frappe.utils import flt
 
 from buzz.api.booking.services import are_registrations_closed
 from buzz.api.events.schemas import (
+	AddOnItem,
 	CurrencyRevenue,
 	EventTicketTypes,
 	PaymentProviderItem,
@@ -13,14 +14,11 @@ from buzz.api.events.schemas import (
 )
 from buzz.api.events.services import ensure_event_team_access, registration_link
 from buzz.api.events.taxes import team_tax_details
-from buzz.events.doctype.buzz_team_settings.buzz_team_settings import is_feature_enabled
 from buzz.payments import get_payment_gateways_for_event
 from buzz.permissions import can_manage_members, has_section_permission, has_team_access
 from buzz.ticketing.doctype.event_ticket_category.event_ticket_category import get_ordered_categories
-from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import (
-	PAID_EVENTS_FLAG,
-	tickets_sold_by_currency,
-)
+from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import tickets_sold_by_currency
+from buzz.ticketing.doctype.ticket_add_on.ticket_add_on import add_on_options
 
 TICKET_TYPE_FIELDS = [
 	"name",
@@ -31,7 +29,21 @@ TICKET_TYPE_FIELDS = [
 	"auto_unpublish_after",
 	"is_published",
 	"is_hidden",
+	"requires_approval",
+	"enable_waitlist",
 	{"prices": ["currency", "price"]},
+]
+
+ADD_ON_FIELDS = [
+	"name",
+	"title",
+	"description",
+	"price",
+	"currency",
+	"enabled",
+	"user_selects_option",
+	"options",
+	{"ticket_types": ["ticket_type"]},
 ]
 
 
@@ -57,6 +69,8 @@ def event_ticket_types(event: str) -> EventTicketTypes:
 		registrations_closed=are_registrations_closed(doc),
 		allow_guest_booking=bool(doc.allow_guest_booking),
 		guest_verification_method=doc.guest_verification_method or "None",
+		requires_approval=bool(doc.requires_approval),
+		enable_waitlist=bool(doc.enable_waitlist),
 		apply_tax=bool(doc.apply_tax),
 		tax_inclusive=bool(doc.tax_inclusive),
 		# Same defaults as Buzz Event's validate_tax_settings, so the form opens filled in.
@@ -64,9 +78,9 @@ def event_ticket_types(event: str) -> EventTicketTypes:
 		tax_percentage=flt(doc.tax_percentage) or 18,
 		**visible_tax_details(doc.team),
 		can_edit_team=can_manage_members(doc.team),
-		paid_events_enabled=is_feature_enabled(doc.team, PAID_EVENTS_FLAG),
 		categories=ticket_categories(event),
 		ticket_types=[ticket_type_item(row, sold, sold_by_currency) for row in rows],
+		add_ons=add_on_items(event),
 		payment_providers=payment_providers(event),
 		revenue=revenue_by_currency(event),
 	)
@@ -102,6 +116,23 @@ def ticket_type_item(row, sold: dict, sold_by_currency: dict) -> TicketTypeItem:
 	return TicketTypeItem(**{**row, "name": name, "tickets_sold": sold.get(name, 0), "prices": prices})
 
 
+def add_on_items(event: str) -> list[AddOnItem]:
+	rows = frappe.get_all(
+		"Ticket Add-on",
+		filters={"event": event},
+		fields=ADD_ON_FIELDS,
+		order_by="title asc",
+		ignore_permissions=True,
+	)
+	return [add_on_item(row) for row in rows]
+
+
+def add_on_item(row) -> AddOnItem:
+	options = add_on_options(row.options)
+	ticket_types = [str(scope.ticket_type) for scope in row.ticket_types]
+	return AddOnItem(**{**row, "options": options, "ticket_types": ticket_types})
+
+
 def tickets_sold_by_type(event: str) -> dict[str, int]:
 	ticket = frappe.qb.DocType("Event Ticket")
 	rows = (
@@ -121,6 +152,8 @@ def revenue_by_currency(event: str) -> list[CurrencyRevenue]:
 			booking.currency,
 			Sum(booking.total_amount).as_("collected"),
 			Sum(booking.refunded_amount).as_("refunded"),
+			Sum(booking.tax_amount).as_("tax"),
+			Sum(booking.discount_amount).as_("discounts"),
 			Count(booking.name).as_("bookings"),
 		)
 		.groupby(booking.currency)

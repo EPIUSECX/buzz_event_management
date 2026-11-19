@@ -8,10 +8,7 @@ from frappe.query_builder.functions import Count
 from frappe.utils import cstr
 
 from buzz.events.doctype.buzz_price.buzz_price import validate_unique_currencies
-from buzz.events.doctype.buzz_team_settings.buzz_team_settings import is_feature_enabled
 from buzz.ticketing.doctype.ticket_hold.ticket_hold import held_quantities
-
-PAID_EVENTS_FLAG = "feature_paid_events"
 
 
 def tickets_sold_by_currency(ticket_types: list) -> dict[tuple[str, str], int]:
@@ -50,12 +47,14 @@ class EventTicketType(Document):
 		auto_unpublish_after: DF.Date | None
 		category: DF.Link | None
 		description: DF.SmallText | None
+		enable_waitlist: DF.Check
 		event: DF.Link
 		is_hidden: DF.Check
 		is_published: DF.Check
 		max_tickets_available: DF.Int
 		name: DF.Int | None
 		prices: DF.Table[BuzzPrice]
+		requires_approval: DF.Check
 		title: DF.Data
 	# end: auto-generated types
 
@@ -67,7 +66,6 @@ class EventTicketType(Document):
 		validate_unique_currencies(self.prices)
 		self.validate_free_or_paid_everywhere()
 		self.validate_locked_prices()
-		self.validate_paid_events_enabled()
 		self.validate_category_event()
 		self.validate_public_ticket_type_remains()
 
@@ -85,6 +83,42 @@ class EventTicketType(Document):
 		has_hidden = bool(self.is_published) or any(row.is_hidden for row in others)
 		if has_hidden and all(row.is_hidden for row in others):
 			frappe.throw(_("The event needs at least one published ticket type that is not hidden"))
+
+	@property
+	def needs_approval(self) -> bool:
+		return bool(
+			self.requires_approval or frappe.get_cached_value("Buzz Event", self.event, "requires_approval")
+		)
+
+	@property
+	def has_waitlist(self) -> bool:
+		# A ticket type without a limit never sells out.
+		enabled = self.enable_waitlist or frappe.get_cached_value("Buzz Event", self.event, "enable_waitlist")
+		return bool(self.max_tickets_available and enabled)
+
+	def joins_waitlist(self, quantity: int, hold_token: str | None = None, for_update: bool = False) -> bool:
+		"""Open waitlist entries keep a freed ticket for the queue, not for the next public buyer."""
+		if not self.has_waitlist:
+			return False
+		remaining = self.get_remaining_tickets(for_update=for_update, hold_token=hold_token)
+		return remaining < quantity or self.has_waitlist_entries()
+
+	def has_waitlist_entries(self) -> bool:
+		booking = frappe.qb.DocType("Event Booking")
+		attendee = frappe.qb.DocType("Event Booking Attendee")
+		query = (
+			frappe.qb.from_(attendee)
+			.join(booking)
+			.on(booking.name == attendee.parent)
+			.select(attendee.name)
+			.where(
+				(attendee.ticket_type == self.name)
+				& (booking.docstatus == 0)
+				& (booking.status == "Waitlisted")
+			)
+			.limit(1)
+		)
+		return bool(query.run())
 
 	@property
 	def is_free(self) -> bool:
@@ -110,16 +144,6 @@ class EventTicketType(Document):
 						row.currency, self.title
 					)
 				)
-
-	# Only a ticket turning paid is checked, so a team without the flag can still edit or
-	# disable the paid ticket types it already has.
-	def validate_paid_events_enabled(self):
-		before = self.get_doc_before_save()
-		if self.is_free or (before and not before.is_free):
-			return
-		team = frappe.get_cached_value("Buzz Event", self.event, "team")
-		if not is_feature_enabled(team, PAID_EVENTS_FLAG):
-			frappe.throw(_("Paid tickets are not enabled for this team. Contact your administrator."))
 
 	def price_in(self, currency: str) -> float:
 		if self.is_free:

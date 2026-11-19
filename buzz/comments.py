@@ -3,10 +3,13 @@ from frappe import _
 from frappe.desk.notifications import extract_mentions
 from frappe.utils import get_fullname, get_url, strip_html
 
-from buzz.permissions import HUMAN_MEMBER_FILTERS
+from buzz.permissions import HUMAN_MEMBER_FILTERS, has_team_access
 from buzz.subscriptions import Subscriptions
 
-DASHBOARD_ROUTES = {"Talk Proposal": "/b/manage/events/{event}/talks?proposal={name}"}
+DASHBOARD_ROUTES = {
+	"Talk Proposal": "/b/manage/events/{event}/talks?proposal={name}",
+	"Event Booking": "/b/manage/events/{event}/transactions?booking={name}",
+}
 
 
 def is_commentable(doctype: str | None) -> bool:
@@ -18,6 +21,23 @@ def team_of(doctype: str, name: str) -> str | None:
 		return frappe.db.get_value(doctype, name, "team")
 	event = frappe.db.get_value(doctype, name, "event")
 	return frappe.db.get_value("Buzz Event", event, "team") if event else None
+
+
+def is_team_note(comment) -> bool:
+	return comment.comment_type == "Comment" and is_commentable(comment.reference_doctype)
+
+
+def can_read_team_notes(team: str | None, user: str) -> bool:
+	"""Notes stay with the record's team: a speaker reads their own proposal, not its notes."""
+	return bool(team) and has_team_access(team, "read", user)
+
+
+def team_note_has_permission(doc, ptype: str | None = None, user: str | None = None, **kwargs) -> bool:
+	"""Frappe's form timeline and docinfo read comments through this hook, not the role check."""
+	if not is_team_note(doc):
+		return True
+	team = team_of(doc.reference_doctype, doc.reference_name)
+	return can_read_team_notes(team, user or frappe.session.user)
 
 
 def team_members(team: str | None) -> list[str]:
@@ -48,10 +68,9 @@ def notify_subscribers(
 ) -> None:
 	"""Tells everyone following the note's or email's record, with a plain-text preview of it."""
 	doctype, name = source.reference_doctype, source.reference_name
-	title = frappe.db.get_value(doctype, name, "title")
 	Subscriptions(doctype, name).notify(
 		source,
-		subject.format(author, title),
+		subject.format(author, record_title(doctype, name)),
 		from_user,
 		dashboard_url(doctype, name, activity=source.name),
 		content=snippet_of(source),
@@ -76,7 +95,7 @@ class TeamComment:
 	"""
 
 	def is_team_note(self) -> bool:
-		return self.comment_type == "Comment" and is_commentable(self.reference_doctype)
+		return is_team_note(self)
 
 	def after_insert(self):
 		if not self.is_team_note():
@@ -136,14 +155,23 @@ def notify_mentioned_members(comment) -> set[str]:
 	return mentioned
 
 
+def record_title(doctype: str, name: str) -> str:
+	if doctype == "Event Booking":
+		event = frappe.db.get_value(doctype, name, "event")
+		return f"Booking {name} · {frappe.db.get_value('Buzz Event', event, 'title')}"
+	return frappe.db.get_value(doctype, name, frappe.get_meta(doctype).get_title_field())
+
+
 def note_email_args(doctype: str, name: str, author: str, note: str) -> dict:
 	"""What the note emails render: the note, who wrote it, and the record and event it is on."""
-	record = frappe.db.get_value(doctype, name, ["title", "event"], as_dict=True)
+	event = frappe.db.get_value(doctype, name, "event")
+	event_doc = frappe.get_cached_doc("Buzz Event", event) if event else None
 	return {
 		"author": get_fullname(author),
 		"note": note,
-		"record_title": record.title,
-		"event_doc": frappe.get_cached_doc("Buzz Event", record.event) if record.event else None,
+		"reference_doctype": doctype,
+		"record_title": record_title(doctype, name),
+		"event_doc": event_doc,
 	}
 
 

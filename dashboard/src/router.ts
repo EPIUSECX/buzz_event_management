@@ -1,12 +1,25 @@
 import { call } from "frappe-ui"
-import { type RouteRecordRaw, createRouter, createWebHistory } from "vue-router"
+import {
+	type RouteLocationNormalized,
+	type RouteRecordRaw,
+	createRouter,
+	createWebHistory,
+} from "vue-router"
 
-import { hasManageAccess } from "@/data/teams"
-import { loadUser } from "@/data/user"
+import { loadUser, userResource } from "@/data/user"
 import type { EventAccess } from "@/types"
 import { firstEventPath } from "@/utils/managerNavigation"
 
 const APP_NAME = "Buzz"
+
+// New users finish onboarding before the dashboard. Other pages (check-in, booking) never wait.
+// A deep link into /manage is kept, so onboarding ends where the user was going.
+async function onboardingRedirect(to: RouteLocationNormalized) {
+	await loadUser()
+	if (!userResource.data?.needs_onboarding) return undefined
+	const query = to.path === "/" ? {} : { "redirect-to": `/b${to.fullPath}` }
+	return { name: "onboarding", query }
+}
 
 const routes: RouteRecordRaw[] = [
 	{
@@ -14,9 +27,7 @@ const routes: RouteRecordRaw[] = [
 		name: "dashboard",
 		// Never rendered — the guard always redirects — but a record needs a component.
 		component: { render: () => null },
-		beforeEnter: async () => ({
-			name: (await hasManageAccess()) ? "manage" : "bookings-tab",
-		}),
+		beforeEnter: async (to) => (await onboardingRedirect(to)) ?? { name: "manage" },
 	},
 	{
 		// Outside the manage shell: the invitee may not be logged in, or on any team.
@@ -35,6 +46,7 @@ const routes: RouteRecordRaw[] = [
 	{
 		path: "/manage",
 		meta: { fullBleed: true },
+		beforeEnter: onboardingRedirect,
 		component: () => import("@/layouts/ManagerLayout.vue"),
 		children: [
 			{
@@ -73,6 +85,18 @@ const routes: RouteRecordRaw[] = [
 				component: () => import("@/pages/manage/events/EventRegistrations.vue"),
 			},
 			{
+				path: "events/:eventId/payments",
+				name: "event-payments",
+				meta: { title: "Payments" },
+				component: () => import("@/pages/manage/events/EventPayments.vue"),
+			},
+			{
+				path: "events/:eventId/transactions",
+				name: "event-transactions",
+				meta: { title: "Transactions" },
+				component: () => import("@/pages/manage/events/EventTransactions.vue"),
+			},
+			{
 				path: "events/:eventId/coupons",
 				name: "event-coupons",
 				meta: { title: "Coupons" },
@@ -83,6 +107,20 @@ const routes: RouteRecordRaw[] = [
 				name: "event-guests",
 				meta: { title: "Guests" },
 				component: () => import("@/pages/manage/events/EventGuests.vue"),
+			},
+			{
+				path: "events/:eventId/approvals",
+				name: "event-approvals",
+				meta: { title: "Approvals" },
+				props: { requestType: "Approval" },
+				component: () => import("@/pages/manage/events/EventRequestQueue.vue"),
+			},
+			{
+				path: "events/:eventId/waitlist",
+				name: "event-waitlist",
+				meta: { title: "Waitlist" },
+				props: { requestType: "Waitlist" },
+				component: () => import("@/pages/manage/events/EventRequestQueue.vue"),
 			},
 			{
 				path: "events/:eventId/talks",
@@ -177,12 +215,18 @@ const routes: RouteRecordRaw[] = [
 				meta: { title: "My Proposals" },
 				component: () => import("@/pages/manage/MyProposals.vue"),
 			},
+			{
+				path: "sponsorship",
+				name: "my-sponsorships",
+				meta: { title: "Sponsorship" },
+				component: () => import("@/pages/manage/MySponsorships.vue"),
+			},
 			// Sidebar destinations that have no page yet. Unnamed on purpose: SidebarItem
 			// falls back to matching on path, so each one lights up on its own. Enumerated
 			// so a mistyped path reaches the 404 below — keep in step with the sidebar
 			// items in ManagerLayout.vue.
 			{
-				path: ":section(sponsorship|overview|registrations|sponsors|more)",
+				path: ":section(overview|registrations|sponsors|more)",
 				component: () => import("@/pages/manage/WorkInProgress.vue"),
 			},
 			// Claims the rest of /manage before the two-segment custom form route can:
@@ -214,6 +258,12 @@ const routes: RouteRecordRaw[] = [
 		component: () => import("@/pages/Playground.vue"),
 	},
 	{
+		path: "/onboarding",
+		name: "onboarding",
+		meta: { fullBleed: true, title: "Welcome" },
+		component: () => import("@/pages/onboarding/OnboardingPage.vue"),
+	},
+	{
 		path: "/login",
 		name: "login",
 		meta: { isPublic: true, title: "Log In" },
@@ -233,6 +283,13 @@ const routes: RouteRecordRaw[] = [
 		component: () => import("@/pages/BookingSuccess.vue"),
 	},
 	{
+		path: "/invite/:booking",
+		name: "invite-accept",
+		props: true,
+		meta: { isPublic: true, title: "Invitation" },
+		component: () => import("@/pages/InviteAccept.vue"),
+	},
+	{
 		path: "/register-interest/:campaign",
 		props: true,
 		name: "register-interest",
@@ -250,85 +307,19 @@ const routes: RouteRecordRaw[] = [
 	},
 	{
 		path: "/bookings",
-		name: "bookings-tab",
-		redirect: "/account/bookings",
+		redirect: { name: "events" },
 	},
 	{
 		path: "/bookings/:bookingId",
-		redirect: (to) => ({
-			name: "booking-details",
-			params: { bookingId: to.params.bookingId },
-		}),
+		redirect: (to) => ({ name: "events", query: { booking: to.params.bookingId } }),
 	},
 	{
 		path: "/tickets",
-		redirect: "/account/tickets",
+		redirect: { name: "events" },
 	},
 	{
 		path: "/tickets/:ticketId",
-		redirect: (to) => ({
-			name: "ticket-details",
-			params: { ticketId: to.params.ticketId },
-		}),
-	},
-	{
-		path: "/account",
-		component: () => import("@/pages/Account.vue"),
-		redirect: { name: "bookings-list" },
-		children: [
-			{
-				path: "bookings",
-				name: "bookings-list",
-				meta: { title: "My Bookings" },
-				component: () => import("@/pages/BookingsList.vue"),
-			},
-			{
-				path: "bookings/:bookingId",
-				props: true,
-				name: "booking-details",
-				meta: { title: "Booking Details" },
-				component: () => import("@/pages/BookingDetails.vue"),
-			},
-			{
-				path: "tickets",
-				name: "tickets-list",
-				meta: { title: "My Tickets" },
-				component: () => import("@/pages/TicketsList.vue"),
-			},
-			{
-				path: "tickets/:ticketId",
-				props: true,
-				name: "ticket-details",
-				meta: { title: "Ticket Details" },
-				component: () => import("@/pages/TicketDetails.vue"),
-			},
-			{
-				path: "proposals",
-				name: "proposals-list",
-				meta: { title: "Talk Proposals" },
-				component: () => import("@/pages/ProposalsList.vue"),
-			},
-			{
-				path: "proposals/:proposalId",
-				props: true,
-				name: "proposal-details",
-				meta: { title: "Proposal Details" },
-				component: () => import("@/pages/ProposalDetails.vue"),
-			},
-			{
-				path: "sponsorships",
-				name: "sponsorships-list",
-				meta: { title: "Sponsorships" },
-				component: () => import("@/pages/SponsorshipsList.vue"),
-			},
-			{
-				path: "sponsorships/:enquiryId",
-				props: true,
-				name: "sponsorship-details",
-				meta: { title: "Sponsorship Details" },
-				component: () => import("@/pages/SponsorshipDetails.vue"),
-			},
-		],
+		redirect: (to) => ({ name: "events", query: { ticket: to.params.ticketId } }),
 	},
 	// Event custom form: /b/<event>/<form>. Declared last — two dynamic segments,
 	// so it only matches after every static route above has been ruled out.

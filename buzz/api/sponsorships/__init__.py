@@ -1,4 +1,5 @@
 import frappe
+from frappe.rate_limiter import rate_limit
 
 from buzz.api.forms.schemas import CustomFormResponse
 from buzz.api.sponsorships.enquiries import (
@@ -14,7 +15,6 @@ from buzz.api.sponsorships.schemas import (
 	EventEnquiriesResponse,
 	EventSponsorshipsResponse,
 	EventSponsorsResponse,
-	SponsorshipDetailsResponse,
 	SponsorshipListItem,
 )
 from buzz.api.sponsorships.services import SponsorshipService, list_user_enquiries
@@ -29,6 +29,7 @@ def get_enquiry_form(event_route: str, form_route: str = "enquire-sponsorship") 
 
 # nosemgrep: guest-whitelisted-method
 @frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=10, seconds=3600)
 def submit_enquiry_form(
 	event_route: str,
 	data: dict | str,
@@ -36,11 +37,6 @@ def submit_enquiry_form(
 	custom_fields_data: dict | str | None = None,
 ) -> str:
 	return SponsorFormService(event_route, form_route).submit(data, custom_fields_data)
-
-
-@frappe.whitelist()
-def get_sponsorship_details(enquiry_id: str) -> SponsorshipDetailsResponse:
-	return SponsorshipService(enquiry_id).details()
 
 
 @frappe.whitelist()
@@ -58,6 +54,11 @@ def create_sponsorship_payment_link(
 @frappe.whitelist()
 def withdraw_sponsorship_enquiry(enquiry_id: str) -> None:
 	SponsorshipService(enquiry_id).withdraw()
+
+
+@frappe.whitelist(methods=["POST"])
+def update_sponsorship_logo(enquiry_id: str, company_logo: str) -> None:
+	SponsorshipService(enquiry_id).change_logo(company_logo)
 
 
 @frappe.whitelist(methods=["GET"])

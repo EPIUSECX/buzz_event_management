@@ -5,7 +5,22 @@
 
 	<div v-else-if="confirmation.data" class="mx-auto flex max-w-[600px] flex-col gap-9 pb-16">
 		<div class="flex flex-col gap-7">
+			<RegistrationRequestNotice v-if="notice" :booking-id="bookingId" :notice="notice" />
+			<div v-else-if="!isConfirmed" class="text-center">
+				<h2 class="text-4xl-bold text-ink-gray-9 mb-2">{{ __("Payment Pending") }}</h2>
+				<p class="text-ink-gray-6 mb-4">
+					{{
+						__(
+							"We have not received your payment yet. If you have paid, it can take a minute to reach us.",
+						)
+					}}
+				</p>
+				<Button variant="outline" :loading="confirmation.loading" @click="confirmation.reload()">
+					{{ __("Check again") }}
+				</Button>
+			</div>
 			<SuccessHero
+				v-else
 				:event-title="event.title"
 				:ticket-count="confirmation.data.tickets.length"
 				:title="confirmation.data.success?.title"
@@ -20,7 +35,11 @@
 				:booking-id="bookingId"
 			/>
 
-			<div class="fade-up-in flex flex-wrap justify-center gap-2" style="animation-delay: 220ms">
+			<div
+				v-if="isConfirmed"
+				class="fade-up-in flex flex-wrap justify-center gap-2"
+				style="animation-delay: 220ms"
+			>
 				<Button
 					size="md"
 					variant="solid"
@@ -48,6 +67,7 @@
 		</div>
 
 		<TicketRows
+			v-if="isConfirmed"
 			class="fade-up-in"
 			style="animation-delay: 260ms"
 			:tickets="confirmation.data.tickets"
@@ -59,15 +79,22 @@
 			class="fade-up-in"
 			style="animation-delay: 340ms"
 			:booking="confirmation.data.booking"
+			:invoice-url="
+				confirmation.data.booking.invoice_available ? bookingFileUrl('download_invoice') : undefined
+			"
 		>
 			<template #footer>{{ paymentLine }}</template>
 		</BookingFinancialSummary>
 
-		<p class="fade-up-in text-center text-p-sm text-ink-gray-5" style="animation-delay: 400ms">
+		<p
+			v-if="isConfirmed"
+			class="fade-up-in text-center text-p-sm text-ink-gray-5"
+			style="animation-delay: 400ms"
+		>
 			{{ __("Need to change a name or cancel?") }}
 			<RouterLink
 				v-if="session.isLoggedIn"
-				:to="`/account/bookings/${bookingId}`"
+				:to="{ name: 'events', query: { booking: bookingId } }"
 				class="text-ink-gray-8 hover:underline"
 			>
 				{{ __("Manage booking") }}
@@ -98,6 +125,7 @@ import EventSummaryCard from "@/components/booking-success/EventSummaryCard.vue"
 import SuccessHero from "@/components/booking-success/SuccessHero.vue"
 import TicketRows from "@/components/booking-success/TicketRows.vue"
 import BookingFinancialSummary from "@/components/BookingFinancialSummary.vue"
+import RegistrationRequestNotice from "@/components/RegistrationRequestNotice.vue"
 import { useBookingFormStorage } from "@/composables/useBookingFormStorage"
 import { useCopyToClipboard } from "@/composables/useCopyToClipboard"
 import { useLoginDialog } from "@/composables/useLoginDialog"
@@ -105,6 +133,7 @@ import { session } from "@/data/session"
 import { triggerCelebrationConfetti } from "@/utils/confetti"
 import { eventUrl } from "@/utils/eventUrl"
 import { safeMarkdown } from "@/utils/markdown"
+import { requestNotice } from "@/utils/registrationRequest"
 
 const props = defineProps({
 	bookingId: {
@@ -117,12 +146,21 @@ const route = useRoute()
 const { open: openLoginDialog } = useLoginDialog()
 const copyToClipboard = useCopyToClipboard()
 
+// The shopper's return proves nothing; only a paid (or free) booking is confirmed.
+function isBookingConfirmed(data: Record<string, any> | null | undefined) {
+	if (requestNotice(data?.booking?.status)) return false
+	return Boolean(data?.event?.free_event || data?.booking?.payment_status === "Paid")
+}
+const isConfirmed = computed(() => isBookingConfirmed(confirmation.data))
+
 const confirmation = useCall<Record<string, any>, Record<string, unknown>>({
 	url: "/api/v2/method/buzz.api.booking.get_booking_confirmation",
 	params: { booking_id: props.bookingId, token: route.query.token },
 	onSuccess: (data) => {
+		// useCall runs onSuccess before it sets confirmation.data, so read the response itself.
+		if (!isBookingConfirmed(data)) return
 		triggerCelebrationConfetti()
-		if (data?.event?.route) {
+		if (data.event?.route) {
 			const { clearStoredData } = useBookingFormStorage(data.event.route)
 			clearStoredData()
 		}
@@ -130,6 +168,7 @@ const confirmation = useCall<Record<string, any>, Record<string, unknown>>({
 })
 
 const event = computed(() => confirmation.data!.event)
+const notice = computed(() => requestNotice(confirmation.data?.booking?.status))
 
 // Files the confirmation hands out; a guest proves access with the page's own token.
 function bookingFileUrl(method: string) {

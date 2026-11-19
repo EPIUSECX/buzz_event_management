@@ -23,7 +23,8 @@ export default defineConfig({
 	forbidOnly: !!process.env.CI,
 	retries: process.env.CI ? 2 : 0,
 	workers: 4,
-	reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "html",
+	// CI runs in shards; each writes a blob report that a later job merges into HTML.
+	reporter: process.env.CI ? [["github"], ["blob"]] : "html",
 
 	timeout: 60000,
 	expect: {
@@ -66,13 +67,14 @@ export default defineConfig({
 		{
 			name: "chromium",
 			testIgnore:
-				/guest-booking|custom-forms|event-proposal|login-modal|check-in|tickets|language|user-settings|ticket-holds|offline-payment|coupons/,
+				/guest-booking|custom-forms|event-proposal|login-modal|check-in|tickets|language|user-settings|ticket-holds|offline-payment|coupons|registration-requests|onboarding/,
 			use: {
 				...devices["Desktop Chrome"],
 				storageState: authFile,
 			},
-			// user-settings-setup seeds the member manage-access.spec.ts runs one test as.
-			dependencies: ["setup", "event-setup", "user-settings-setup"],
+			// manage-access.spec.ts runs as the member user-settings-setup seeds and the
+			// attendee tickets-setup seeds.
+			dependencies: ["setup", "event-setup", "user-settings-setup", "tickets-setup"],
 		},
 		{
 			name: "guest-event-setup",
@@ -229,6 +231,41 @@ export default defineConfig({
 				storageState: authFile,
 			},
 			dependencies: ["coupons-setup"],
+		},
+		{
+			name: "registration-requests-setup",
+			testMatch: /registration-requests\.setup\.ts/,
+			use: {
+				storageState: authFile,
+			},
+			dependencies: ["setup"],
+		},
+		{
+			// The organizer runs on the shared session; the requester gets a context of their own.
+			name: "registration-requests-chromium",
+			testMatch: /registration-requests\.spec\.ts/,
+			use: {
+				...devices["Desktop Chrome"],
+				storageState: authFile,
+			},
+			dependencies: ["registration-requests-setup"],
+		},
+		{
+			name: "onboarding-setup",
+			testMatch: /onboarding\.setup\.ts/,
+			use: {
+				storageState: authFile,
+			},
+			dependencies: ["setup"],
+		},
+		{
+			// Each flow runs as a user of its own (see onboarding.setup.ts).
+			name: "onboarding-chromium",
+			testMatch: /onboarding\.spec\.ts/,
+			use: {
+				...devices["Desktop Chrome"],
+			},
+			dependencies: ["onboarding-setup"],
 		},
 		{
 			name: "ticket-holds-setup",

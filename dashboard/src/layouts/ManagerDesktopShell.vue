@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import { useElementSize, usePreferredReducedMotion } from "@vueuse/core"
-import { Divider, PageHeaderTarget, Sidebar, SidebarItem, Skeleton } from "frappe-ui"
+import {
+	Divider,
+	KeyboardShortcut,
+	PageHeaderTarget,
+	Sidebar,
+	SidebarItem,
+	SidebarSection,
+	Skeleton,
+} from "frappe-ui"
 import { computed, ref, useTemplateRef, watch } from "vue"
 import { useRoute } from "vue-router"
 
+import CommandPaletteDialog from "@/components/dashboard/command-palette/CommandPaletteDialog.vue"
+import { paletteOpen } from "@/components/dashboard/command-palette/paletteOpen"
 import ManagerSidebarHeader from "@/components/dashboard/ManagerSidebarHeader.vue"
 import NotificationsPanel from "@/components/dashboard/notifications/NotificationsPanel.vue"
 import WorkspaceOpening from "@/components/dashboard/WorkspaceOpening.vue"
@@ -11,6 +21,7 @@ import UserMenu from "@/components/UserMenu.vue"
 import { openingTeam } from "@/composables/useWorkspaceOpening"
 import {
 	discoverEvents,
+	navigationGroups,
 	openDiscoverEvents,
 	type ManagerNavItem,
 	type Workspace,
@@ -19,6 +30,8 @@ import {
 const props = defineProps<{ items: ManagerNavItem[]; workspace?: Workspace }>()
 
 const route = useRoute()
+const groups = computed(() => navigationGroups(props.items))
+const openPalette = () => (paletteOpen.value = true)
 
 // Calendar, Members, Payments and Settings.
 const WORKSPACE_ITEM_COUNT = 4
@@ -65,6 +78,14 @@ watch(headerKey, (key, previous) => {
 					</Transition>
 				</div>
 
+				<div class="mx-2 mt-2">
+					<SidebarItem :label="__('Search')" icon="lucide-search" :on-click="openPalette">
+						<template #suffix>
+							<KeyboardShortcut combo="Mod+K" class="mr-1" />
+						</template>
+					</SidebarItem>
+				</div>
+
 				<!-- One block, not per row: absolute rows would all collapse onto the
 				     container's corner. my-2, not py-2: the leaving list anchors to the
 				     padding box, so padding here would lift it out of line. -->
@@ -83,15 +104,32 @@ watch(headerKey, (key, previous) => {
 									<Skeleton class="h-3 w-24 rounded-2" />
 								</div>
 							</template>
-							<template v-for="item in items" v-else :key="item.label">
-								<Divider v-if="item.startsGroup" class="my-1.5" />
-								<SidebarItem
-									:label="item.label"
-									:icon="item.icon"
-									:route="item.to"
-									:active="isActive(item.to)"
-								/>
-							</template>
+							<SidebarSection
+								v-for="(group, index) in groups"
+								v-else
+								:key="index"
+								:label="group.label && __(group.label)"
+								class="first:mt-0"
+							>
+								<template v-for="item in group.items" :key="item.label">
+									<Divider v-if="item.startsGroup" class="my-1.5" />
+									<SidebarItem
+										:label="item.label"
+										:icon="item.icon"
+										:route="item.to"
+										:active="isActive(item.to)"
+									>
+										<template v-if="item.count" #suffix>
+											<span
+												class="mr-2 flex items-center gap-1.5 text-sm text-ink-gray-5 tabular-nums"
+											>
+												<span v-if="item.dot" class="size-1.5 rounded-full bg-surface-amber-6" />
+												{{ item.count }}
+											</span>
+										</template>
+									</SidebarItem>
+								</template>
+							</SidebarSection>
 						</div>
 					</Transition>
 				</div>
@@ -113,6 +151,7 @@ watch(headerKey, (key, previous) => {
 		</div>
 		<!-- Zero-width column panels dock into, flush with the sidebar edge and over the page. -->
 		<div id="sidebar-panel" class="relative z-30 w-0 shrink-0" />
+		<CommandPaletteDialog />
 
 		<div
 			class="shell-panel relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface-sidebar py-2 pl-1"

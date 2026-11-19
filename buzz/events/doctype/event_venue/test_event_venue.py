@@ -7,13 +7,13 @@ import frappe
 import requests
 from frappe.tests import IntegrationTestCase, UnitTestCase
 
-from buzz.events.doctype.event_venue.event_venue import MULTIPLE_LOCATIONS_FLAG
 from buzz.events.doctype.event_venue.map_link import (
 	SHORT_LINK_DIGITS,
 	coordinates_of,
 	read_map_link,
 )
 from buzz.patches.set_event_venue_name import execute as set_event_venue_name
+from buzz.patches.shorten_group_venue_names import execute as shorten_group_venue_names
 from buzz.tests.factories import BuzzEventFactory, BuzzTeamFactory, EventVenueFactory
 from buzz.tests.utils import clear_map_link_cache
 
@@ -73,8 +73,26 @@ class IntegrationTestGroupVenue(IntegrationTestCase):
 	def test_group_is_named_after_its_locations_and_holds_no_location_itself(self):
 		group = self.group(self.hall, self.brewpub, latitude=12.97, longitude=77.59).insert()
 
-		self.assertEqual(group.venue_name, "Main Hall · Brewpub")
+		self.assertEqual(group.venue_name, "Main Hall +1")
 		self.assertFalse(group.address or group.latitude or group.longitude)
+
+	def test_group_with_long_location_names_fits_the_venue_name(self):
+		names = [
+			f"{city} International Convention and Exhibition Centre" for city in ("Cairo", "Dubai", "Doha")
+		]
+		venues = [EventVenueFactory.create(team=self.team, venue_name=name).name for name in names]
+
+		group = self.group(*venues).insert()
+
+		self.assertEqual(group.venue_name, f"{names[0]} +2")
+
+	def test_patch_shortens_joined_group_names(self):
+		group = self.group(self.hall, self.brewpub).insert()
+		frappe.db.set_value("Event Venue", group.name, "venue_name", "Main Hall · Brewpub")
+
+		shorten_group_venue_names()
+
+		self.assertEqual(frappe.db.get_value("Event Venue", group.name, "venue_name"), "Main Hall +1")
 
 	def test_group_rejects_invalid_locations(self):
 		nested = self.group(self.hall, self.brewpub).insert().name
@@ -96,7 +114,7 @@ class IntegrationTestGroupVenue(IntegrationTestCase):
 		hall.venue_name = "New Hall"
 		hall.save()
 
-		self.assertEqual(frappe.db.get_value("Event Venue", group.name, "venue_name"), "New Hall · Brewpub")
+		self.assertEqual(frappe.db.get_value("Event Venue", group.name, "venue_name"), "New Hall +1")
 
 	def test_a_location_cannot_become_a_group(self):
 		hall = EventVenueFactory.create(team=self.team)
@@ -113,16 +131,6 @@ class IntegrationTestGroupVenue(IntegrationTestCase):
 		group.save()
 
 		self.assertEqual(group.locations, [])
-
-	def test_team_without_the_flag_cannot_add_a_group_but_keeps_its_own(self):
-		group = self.group(self.hall, self.brewpub).insert()
-		# The team is shared by the class, and rollback is per class.
-		self.addCleanup(BuzzTeamFactory.set_settings, self.team, {MULTIPLE_LOCATIONS_FLAG: 1})
-		BuzzTeamFactory.set_settings(self.team, {MULTIPLE_LOCATIONS_FLAG: 0})
-
-		self.assertRaises(frappe.ValidationError, self.group(self.hall, self.brewpub).insert)
-		group.locations[0].label = "Main stage"
-		group.save()
 
 
 GOOGLE_PLACE_LINK = (

@@ -1,9 +1,15 @@
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, cstr, flt
 from pydantic import AliasPath, BaseModel, ConfigDict, Field
 
 from buzz.ticketing.doctype.event_booking_refund.event_booking_refund import record_gateway_refund
+
+GATEWAY_PAYMENT_ID_FIELDS = {
+	"Razorpay": "razorpay_payment_id",
+	"Paymob": "paymob_payment_id",
+	"PayPal": "transaction_id",
+}
 
 
 class RefundNotification(BaseModel):
@@ -25,6 +31,9 @@ class RefundNotification(BaseModel):
 	def amount(self) -> float:
 		"""What the gateway refunded, in the major unit the booking is priced in."""
 		return flt(self.amount_in_minor_unit) / 100
+
+# An enquiry still open for its applicant to pay for.
+PAYABLE_ENQUIRY_STATUSES = ("Approval Pending", "Payment Pending")
 
 
 def get_payment_gateways_for_event(event: str) -> list[str]:
@@ -94,7 +103,15 @@ def get_payment_link_for_sponsorship(
 	payment_gateway: str | None = None,
 	currency: str | None = None,
 ) -> str:
+	# Read fresh: the status is what gates a second payment, and `db_set` leaves the cache stale.
+	enquiry = frappe.db.get_value(
+		"Sponsorship Enquiry", sponsorship_enquiry, ["event", "status"], as_dict=True
+	)
 	tier_doc = frappe.get_cached_doc("Sponsorship Tier", sponsorship_tier)
+	if str(tier_doc.event) != str(enquiry.event):
+		frappe.throw(_("This sponsorship tier is not offered for this event."))
+	if enquiry.status not in PAYABLE_ENQUIRY_STATUSES:
+		frappe.throw(_("This sponsorship enquiry is not open for payment."))
 	if not tier_doc.enabled:
 		frappe.throw(_("This sponsorship tier is no longer available."))
 	payment_gateway = resolve_payment_gateway(tier_doc.event, payment_gateway)
@@ -148,6 +165,7 @@ def get_payment_link(
 	if payment_gateway == "Razorpay" or payment_gateway == "Paymob":
 		order = controller.create_order(**payment_details)
 		payment_details.update({"order_id": order.get("id")})
+		payment.db_set("order_id", order.get("id"))
 
 	url = controller.get_payment_url(**payment_details)
 
@@ -200,54 +218,77 @@ def record_payment(
 
 
 def mark_payment_as_received(reference_doctype: str, reference_docname: str):
-	if frappe.in_test:
+	request = latest_payment_request(reference_doctype, reference_docname)
+	data = request.data
+
+	if data.get("gateway") and not data.get("payment"):
+		# A checkout bma_integrations logged: it carries the gateway's own id.
+		mark_checkout_as_received(reference_doctype, reference_docname, request.request_id)
 		return
 
-	request = frappe.get_all(
-		"Integration Request",
+	# The request data carries client-chosen values, so the server-made payment row decides.
+	payment = frappe.get_last_doc(
+		"Event Payment",
 		filters={
 			"reference_doctype": reference_doctype,
 			"reference_docname": reference_docname,
+			"payment_received": 0,
 		},
-		fields=["name", "request_id", "data"],
-		order_by="creation desc",
-		limit=1,
+	)
+	payment_id = data.get(payment_id_field(payment.payment_gateway))
+	if payment.payment_gateway == "Razorpay":
+		verify_razorpay_payment(payment, payment_id)
+
+	frappe.db.set_value(
+		"Event Payment",
+		payment.name,
+		{
+			"payment_received": 1,
+			"payment_id": payment_id,
+			"order_id": payment.order_id or data.get("order_id"),
+		},
 	)
 
-	if len(request):
-		data = frappe.parse_json(request[0].data)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
-		if data.get("gateway") and not data.get("payment"):
-			# A checkout bma_integrations logged: it carries the gateway's own id.
-			mark_checkout_as_received(reference_doctype, reference_docname, request[0].request_id)
-			return
 
-		payment_gateway = data.get("payment_gateway")
-		if payment_gateway == "Razorpay":
-			payment_id = "razorpay_payment_id"
+def latest_payment_request(reference_doctype: str, reference_docname: str) -> frappe._dict:
+	"""The newest Integration Request logged for the document, with its data parsed."""
+	filters = {"reference_doctype": reference_doctype, "reference_docname": reference_docname}
+	request = frappe.db.get_value(
+		"Integration Request", filters, ["request_id", "data"], order_by="creation desc", as_dict=True
+	)
+	if not request:
+		frappe.throw(_("No payment request found for {0}").format(reference_docname))
+	request.data = frappe.parse_json(request.data)
+	return request
 
-		elif payment_gateway == "Paymob":
-			payment_id = "paymob_payment_id"
 
-		elif payment_gateway == "PayPal":
-			payment_id = "transaction_id"
+def payment_request_data(reference_doctype: str, reference_docname: str) -> dict:
+	return latest_payment_request(reference_doctype, reference_docname).data
 
-		elif "Stripe" in payment_gateway:
-			payment_id = "stripe_token_id"
-		else:
-			payment_id = "order_id"
 
-		frappe.db.set_value(
-			"Event Payment",
-			data.payment,
-			{
-				"payment_received": 1,
-				"payment_id": data.get(payment_id),
-				"order_id": data.get("order_id"),
-			},
-		)
+def payment_id_field(payment_gateway: str) -> str:
+	if "Stripe" in payment_gateway:
+		return "stripe_token_id"
+	return GATEWAY_PAYMENT_ID_FIELDS.get(payment_gateway, "order_id")
 
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+
+def verify_razorpay_payment(payment, payment_id: str | None):
+	"""An order takes one captured payment, so this row's own order cannot pay anything else."""
+	if not payment_id:
+		frappe.throw(_("Payment id is missing"))
+
+	gateway_payment = get_controller("Razorpay").fetch_payment(payment_id)
+	if not payment.order_id or gateway_payment.get("order_id") != payment.order_id:
+		frappe.throw(_("This payment is not for this order"))
+
+	# The payments app truncates an order's amount to paise, so it can sit one below the total.
+	if abs(cint(gateway_payment.get("amount")) - flt(payment.amount) * 100) > 1:
+		frappe.throw(_("Paid amount does not match the amount due"))
+
+	if cstr(gateway_payment.get("currency")).upper() != cstr(payment.currency).upper():
+		frappe.throw(_("Paid currency does not match the currency due"))
 
 
 def mark_checkout_as_received(reference_doctype: str, reference_docname: str, payment_id: str) -> None:

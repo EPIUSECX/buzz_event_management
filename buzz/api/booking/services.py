@@ -14,17 +14,21 @@ from frappe.utils.password import get_encryption_key
 
 from buzz.api.booking.exceptions import (
 	AddOnNotForEvent,
+	AddOnNotForTicketType,
 	InvalidAddOnValue,
 	InvalidCoupon,
 	InvoiceDetailsMissing,
 	RegistrationsClosed,
+	TooManyTicketsInBooking,
 )
 from buzz.api.booking.guests import get_or_create_guest_user, verify_guest_otp
 from buzz.api.booking.schemas import (
+	MAX_TICKETS_PER_IP,
 	BookingRequest,
 	FreeBookingResponse,
 	OfflineBookingResponse,
 	PaymentLinkResponse,
+	RequestResponse,
 )
 from buzz.api.filters.conditions import form_logic_rules, form_questions
 from buzz.api.forms.answers import CustomAnswers
@@ -36,10 +40,13 @@ from buzz.events.doctype.buzz_form.form_types import (
 )
 from buzz.payments import get_payment_link_for_booking
 from buzz.ticketing.doctype.buzz_coupon_code.buzz_coupon_code import BuzzCouponCode
+from buzz.ticketing.doctype.event_booking.registration_request import RegistrationRequest
 from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import (
 	default_currency,
 	start_capacity_transaction,
 )
+from buzz.ticketing.doctype.ticket_add_on.ticket_add_on import add_on_options
+from buzz.ticketing.doctype.ticket_hold.ticket_hold import release_hold
 from buzz.utils import ZOOM_BACKED_CATEGORIES
 
 if TYPE_CHECKING:
@@ -62,6 +69,16 @@ def without_trunk_zero(phone: str | None) -> str | None:
 	return f"{code}-{number.lstrip('0')}"
 
 
+def validate_add_on(catalog, value: str | None, ticket_type: str) -> None:
+	if not catalog:
+		AddOnNotForEvent.throw()
+	scope = [str(row.ticket_type) for row in catalog.ticket_types]
+	if scope and ticket_type not in scope:
+		AddOnNotForTicketType.throw()
+	if catalog.user_selects_option and value not in add_on_options(catalog.options):
+		InvalidAddOnValue.throw(value=value)
+
+
 class BookingService:
 	"""Create an Event Booking from a validated request and hand back the next step."""
 
@@ -72,16 +89,24 @@ class BookingService:
 	def event(self) -> "BuzzEvent":
 		return frappe.get_cached_doc("Buzz Event", self.request.event)
 
-	def process(self) -> FreeBookingResponse | OfflineBookingResponse | PaymentLinkResponse:
+	def process(self) -> FreeBookingResponse | OfflineBookingResponse | PaymentLinkResponse | RequestResponse:
 		start_capacity_transaction()
+		self.validate_ticket_count()
 		self.validate_event()
 		self.validate_offline_currency()
 		self.validate_answers()
 		self.validate_add_ons()
 		booking = self.build_booking()
+		if booking.is_request:
+			RegistrationRequest(booking).validate_no_open_request()
 		booking.insert(ignore_permissions=True)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return self.finalize(booking)
+
+	# Holds only cover ticket types with a limit, so unlimited ones are capped here.
+	def validate_ticket_count(self) -> None:
+		if len(self.request.attendees) > MAX_TICKETS_PER_IP:
+			TooManyTicketsInBooking.throw(limit=MAX_TICKETS_PER_IP)
 
 	def validate_offline_currency(self) -> None:
 		currency = self.request.currency
@@ -122,25 +147,20 @@ class BookingService:
 		]
 
 	def validate_add_ons(self) -> None:
-		"""Every add-on named in the request must be an enabled add-on of this event, and
-		its value one of the add-on's options. Runs before build_booking so a bad selection
-		is rejected before any document is written."""
+		"""Every add-on named in the request must be an enabled add-on of this event, in scope
+		for the attendee's ticket type, and its value one of the add-on's options. Runs before
+		build_booking so a bad selection is rejected before any document is written."""
 		allowed = self.allowed_add_ons()
 		for attendee in self.request.attendees:
+			ticket_type = cstr(attendee.get("ticket_type"))
 			for add_on in attendee.get("add_ons") or []:
-				catalog = allowed.get(add_on["add_on"])
-				if not catalog:
-					AddOnNotForEvent.throw()
-				if catalog.user_selects_option:
-					options = (catalog.options or "").split("\n")
-					if add_on.get("value") not in options:
-						InvalidAddOnValue.throw(value=add_on.get("value"))
+				validate_add_on(allowed.get(add_on["add_on"]), add_on.get("value"), ticket_type)
 
 	def allowed_add_ons(self) -> dict:
 		rows = frappe.db.get_all(
 			"Ticket Add-on",
 			filters={"event": self.request.event, "enabled": 1},
-			fields=["name", "options", "user_selects_option"],
+			fields=["name", "options", "user_selects_option", {"ticket_types": ["ticket_type"]}],
 		)
 		return {row.name: row for row in rows}
 
@@ -156,6 +176,7 @@ class BookingService:
 		self.append_utm_parameters(booking)
 		self.append_custom_fields(booking)
 		self.append_attendees(booking)
+		RegistrationRequest(booking).start()
 		return booking
 
 	def apply_code(self, booking: "EventBooking") -> None:
@@ -276,7 +297,9 @@ class BookingService:
 
 	def finalize(
 		self, booking: "EventBooking"
-	) -> FreeBookingResponse | OfflineBookingResponse | PaymentLinkResponse:
+	) -> FreeBookingResponse | OfflineBookingResponse | PaymentLinkResponse | RequestResponse:
+		if booking.is_request:
+			return self.request_response(booking)
 		if booking.total_amount == 0:
 			return self.free_booking_response(booking)
 		if self.request.is_offline:
@@ -286,9 +309,14 @@ class BookingService:
 	def free_booking_response(self, booking: "EventBooking") -> FreeBookingResponse:
 		booking.flags.ignore_permissions = True
 		booking.submit()
-		return FreeBookingResponse(
-			booking_name=booking.name,
-			redirect_to=f"/booking-success/{booking.name}?token={get_booking_access_token(booking.name)}",
+		return FreeBookingResponse(booking_name=booking.name, redirect_to=success_path(booking.name))
+
+	def request_response(self, booking: "EventBooking") -> RequestResponse:
+		"""A request holds no tickets until an organizer approves it."""
+		release_hold(booking.hold_token)
+		RegistrationRequest(booking).send_received_email()
+		return RequestResponse(
+			booking_name=booking.name, redirect_to=success_path(booking.name), request_status=booking.status
 		)
 
 	def offline_booking_response(self, booking: "EventBooking") -> OfflineBookingResponse:
@@ -349,6 +377,10 @@ class BookingService:
 				payment_gateway=self.request.payment_gateway,
 			)
 		)
+
+
+def success_path(booking_name: str) -> str:
+	return f"/booking-success/{booking_name}?token={get_booking_access_token(booking_name)}"
 
 
 def are_registrations_closed(event_doc) -> bool:

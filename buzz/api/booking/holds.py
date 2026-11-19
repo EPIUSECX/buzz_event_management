@@ -10,7 +10,7 @@ from buzz.api.booking.exceptions import (
 	TicketsUnavailable,
 	TooManyTicketsHeld,
 )
-from buzz.api.booking.schemas import TicketHoldResponse
+from buzz.api.booking.schemas import MAX_TICKETS_PER_IP, TicketHoldResponse
 from buzz.api.booking.services import are_registrations_closed
 from buzz.ticketing.doctype.buzz_coupon_code.buzz_coupon_code import BuzzCouponCode
 from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import (
@@ -28,10 +28,6 @@ from buzz.ticketing.doctype.ticket_hold.ticket_hold import (
 if TYPE_CHECKING:
 	from buzz.events.doctype.buzz_event.buzz_event import BuzzEvent
 	from buzz.ticketing.doctype.event_ticket_type.event_ticket_type import EventTicketType
-
-
-# One network can hold this many tickets at a time, so a script can't hold a whole event.
-MAX_TICKETS_PER_IP = 20
 
 
 class TicketHoldService:
@@ -57,6 +53,9 @@ class TicketHoldService:
 		ticket_types = self.limited_ticket_types()
 		lock_ticket_types([row.name for row in ticket_types])
 		expires_at = self.resolve_expiry()
+		# A waitlisted ticket type holds nothing: the booking joins the queue instead.
+		waitlisted = [str(row.name) for row in ticket_types if self.joins_waitlist(row)]
+		ticket_types = [row for row in ticket_types if str(row.name) not in waitlisted]
 		remaining = {str(row.name): self.check_capacity(row) for row in ticket_types}
 		held = {name: self.quantities[name] for name in remaining}
 		set_hold(self.hold_token, self.event_name, held, expires_at)
@@ -64,6 +63,7 @@ class TicketHoldService:
 			hold_token=self.hold_token,
 			expires_in_seconds=self.seconds_until(expires_at) if any(held.values()) else None,
 			remaining=remaining,
+			waitlisted=waitlisted,
 		)
 
 	def validate_event(self) -> None:
@@ -108,6 +108,10 @@ class TicketHoldService:
 		release_hold(self.hold_token)
 		self.hold_token = frappe.generate_hash(length=32)
 		return new_hold_expiry()
+
+	def joins_waitlist(self, ticket_type: "EventTicketType") -> bool:
+		quantity = self.quantities[str(ticket_type.name)]
+		return ticket_type.joins_waitlist(quantity, self.hold_token, for_update=True)
 
 	def check_capacity(self, ticket_type: "EventTicketType") -> int:
 		remaining = ticket_type.get_remaining_tickets(for_update=True, hold_token=self.hold_token)

@@ -190,9 +190,7 @@ def generate_ics_file(event_doc, attendee_email: str, meeting):
 		"Email Account", {"default_outgoing": 1, "enable_outgoing": 1}, "email_id"
 	)
 
-	# A venue added from a map link may have no address; its name still says where.
 	venue = venue_details(event_doc.venue)
-	venue_address = (venue.address or venue.venue_name) if venue else ""
 
 	context = {
 		"uid": uuid4(),
@@ -201,11 +199,11 @@ def generate_ics_file(event_doc, attendee_email: str, meeting):
 		"start": start_dt.strftime("%Y%m%dT%H%M%S"),
 		"end": end_dt.strftime("%Y%m%dT%H%M%S"),
 		"title": escape_ics_text(event_doc.title),
-		"location": escape_ics_text(meeting.join_url or venue_address),
+		"location": escape_ics_text(meeting.join_url or ics_location(venue)),
 		"conference_url": meeting.join_url,
 		"event_url": event_url,
 		"attendee_email": attendee_email,
-		"description": escape_ics_text(ics_description(event_doc, meeting, event_url)),
+		"description": escape_ics_text(ics_description(event_doc, meeting, event_url, venue)),
 		"organizer_name": organizer_name,
 		"organizer_email": organizer_email,
 	}
@@ -214,12 +212,40 @@ def generate_ics_file(event_doc, attendee_email: str, meeting):
 	return frappe.render_template("templates/ics/ics.jinja2", context, is_path=True)
 
 
-def ics_description(event_doc, meeting, event_url: str | None) -> str:
+def ics_location(venue) -> str:
+	"""iCalendar allows one LOCATION, and calendars ignore RFC 9073's VLOCATION, so a venue
+	with several locations names them all in it."""
+	if not venue:
+		return ""
+	if venue.has_multiple_locations:
+		return " · ".join(location_label(location) for location in venue.locations)
+	# A venue added from a map link may have no address; its name still says where.
+	return venue.address or venue.venue_name
+
+
+def location_label(location) -> str:
+	return f"{location.label}: {location.venue_name}" if location.label else location.venue_name
+
+
+def ics_description(event_doc, meeting, event_url: str | None, venue) -> str:
 	lines = [f"Your ticket for {event_doc.title}", event_url]
 	if meeting.join_url:
 		platform_text = f"on {meeting.platform}" if meeting.platform else "online"
 		lines.insert(0, f"Join {platform_text}: {meeting.join_url}\n")
-	return "\n".join(line for line in lines if line)
+	if venue and venue.has_multiple_locations:
+		lines.extend(["", "Locations:", *ics_location_lines(venue.locations)])
+	return "\n".join(line for line in lines if line is not None)
+
+
+def ics_location_lines(locations) -> list[str]:
+	return [
+		" · ".join(
+			part
+			for part in [f"{number}. {location_label(location)}", location.address, location.map_link]
+			if part
+		)
+		for number, location in enumerate(locations, 1)
+	]
 
 
 def escape_ics_text(value: str | None) -> str:
@@ -323,6 +349,16 @@ def render_email_template(template_name: str, args: dict) -> dict:
 	return frappe.get_doc("Email Template", template_name).get_formatted_email(args)
 
 
+def can_publish(file, user: str) -> bool:
+	"""File's read check denies a guest even its own upload, so ownership decides here."""
+	from buzz.permissions import is_unrestricted
+
+	if is_unrestricted(user):
+		return True
+	# Every guest is "Guest": one already attached to a document is another visitor's.
+	return file.owner == user and not (user == "Guest" and file.attached_to_name)
+
+
 def make_file_public(file_url: str | None) -> str | None:
 	"""Move a private file to public and return its new URL, so guests can load it."""
 	if not (file_url or "").startswith("/private/"):
@@ -331,6 +367,8 @@ def make_file_public(file_url: str | None) -> str | None:
 	if not name:
 		return file_url
 	file = frappe.get_doc("File", name)
+	if not can_publish(file, frappe.session.user):
+		frappe.throw(frappe._("You can only publish a file you uploaded."), frappe.PermissionError)
 	file.is_private = 0
 	try:
 		file.save(ignore_permissions=True)
