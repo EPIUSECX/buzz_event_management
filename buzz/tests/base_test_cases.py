@@ -299,6 +299,18 @@ def razorpay_gateway() -> str:
 	return RAZORPAY
 
 
+def make_payment_gateway(name: str | None = None) -> str:
+	"""An enabled gateway row; a Payment Gateway of bma_integrations stands in for a real one."""
+	return PaymentGatewayFactory.create(**({"gateway": name} if name else {})).name
+
+
+def stub_gateway_checkout():
+	"""Stand in for the gateway's checkout: a made-up gateway row has no settings to open one with."""
+	controller = MagicMock()
+	controller.get_payment_url.return_value = "https://pay.example.com/checkout"
+	return patch("buzz.payments.get_controller", return_value=controller)
+
+
 def create_unpaid_payment(document, order_id: str | None = None):
 	return EventPaymentFactory.create(
 		amount=flt(document.get("total_amount")) or TICKET_PRICE,

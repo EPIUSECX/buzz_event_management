@@ -20,7 +20,12 @@ from buzz.api.comments import get_activity
 from buzz.api.events.exceptions import CannotManageEvent
 from buzz.api.events.services import events_for
 from buzz.api.events.ticket_types import revenue_by_currency
-from buzz.tests.base_test_cases import BookingTestCase, authorize_payment, make_payment_gateway
+from buzz.tests.base_test_cases import (
+	BookingTestCase,
+	authorize_payment,
+	make_payment_gateway,
+	stub_gateway_checkout,
+)
 from buzz.tests.factories import (
 	BuzzEventCollaboratorFactory,
 	BuzzEventFactory,
@@ -347,7 +352,7 @@ class TestPaidRegistrationRequests(RequestTestCase):
 
 		approve_request(name)
 
-		with self.set_user("Guest"):
+		with self.set_user("Guest"), stub_gateway_checkout():
 			self.assertTrue(get_request_payment_link(name, token).payment_link)
 
 	def test_offer_window_follows_the_event_setting(self):
@@ -369,7 +374,7 @@ class TestPaidRegistrationRequests(RequestTestCase):
 
 		with self.freeze_time(add_to_date(now_datetime(), hours=49)):
 			self.assertIsNone(self.rows("Approval")[name].offer_expires_at)
-			with self.set_user(self.booker):
+			with self.set_user(self.booker), stub_gateway_checkout():
 				get_request_payment_link(name)
 			self.assertEqual(held_quantities([ticket_type.name]), {str(ticket_type.name): 1})
 

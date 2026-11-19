@@ -32,6 +32,7 @@ class RefundNotification(BaseModel):
 		"""What the gateway refunded, in the major unit the booking is priced in."""
 		return flt(self.amount_in_minor_unit) / 100
 
+
 # An enquiry still open for its applicant to pay for.
 PAYABLE_ENQUIRY_STATUSES = ("Approval Pending", "Payment Pending")
 

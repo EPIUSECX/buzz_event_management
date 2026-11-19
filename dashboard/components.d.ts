@@ -222,7 +222,6 @@ declare module 'vue' {
     PersonalProfileSettings: typeof import('./src/components/dashboard/teams/settings/PersonalProfileSettings.vue')['default']
     PersonalTeamCard: typeof import('./src/components/dashboard/teams/PersonalTeamCard.vue')['default']
     PhoneInput: typeof import('./src/components/PhoneInput.vue')['default']
-    PhoneReason: typeof import('./src/components/registration/PhoneReason.vue')['default']
     PlaygroundBar: typeof import('./src/components/playground/PlaygroundBar.vue')['default']
     PlaygroundChecklist: typeof import('./src/components/playground/PlaygroundChecklist.vue')['default']
     PlaygroundInbox: typeof import('./src/components/playground/PlaygroundInbox.vue')['default']
